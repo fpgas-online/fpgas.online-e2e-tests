@@ -1,0 +1,73 @@
+name: e2e
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Site to test"
+        default: both
+        type: choice
+        options: [both, welland, ps1]
+      seed:
+        description: "Replay a previous run's board choice"
+        default: ""
+      on_dead:
+        description: "What to do if the chosen board is dead"
+        default: fail
+        type: choice
+        options: [fail, retry]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install the OCR engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+      - run: uv run pytest tests/unit -v
+
+  shared:
+    needs: unit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [welland, ps1]
+    concurrency:
+      group: e2e-${{ matrix.site }}
+      cancel-in-progress: false
+    if: >
+      github.event_name != 'workflow_dispatch'
+      || inputs.site == 'both'
+      || inputs.site == matrix.site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install the browser and OCR engine
+        # Playwright's bundled Chromium has no H.264 and cannot decode the
+        # camera stream, so use the distribution browser.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+      - name: Run the suite against ${{ matrix.site }}
+        env:
+          CHROMIUM: /usr/bin/chromium
+        run: |
+          uv run pytest tests/shared -v -s \
+            --site ${{ matrix.site }} \
+            --on-dead ${{ inputs.on_dead || 'fail' }} \
+            ${{ inputs.seed && format('--seed {0}', inputs.seed) || '' }} \
+            --screenshot on --video retain-on-failure --tracing retain-on-failure \
+            --output test-results
+      - name: Upload artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ matrix.site }}-${{ github.run_id }}
+          path: test-results/
+          retention-days: 14
