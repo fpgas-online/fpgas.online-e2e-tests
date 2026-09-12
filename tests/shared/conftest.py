@@ -71,10 +71,15 @@ def board_page(page, site, seed, on_dead, evidence):
             session.terminal.wait_for_prompt(timeout=45)
         except TimeoutError as exc:
             return False, f"the web terminal never reached a prompt ({exc})"
+        # Wait for the picture rather than sampling it once. video.js has to
+        # fetch the playlist, buffer a few one-second segments and start
+        # decoding; a single sample taken the moment the terminal connects
+        # catches readyState 0 every time and calls a healthy board dead.
         try:
-            live, detail = session.camera.is_live()
+            return True, f"the camera feed is live ({session.camera.wait_until_live(timeout=45)})"
+        except TimeoutError as exc:
+            return False, f"the camera feed never went live ({exc})"
         except Exception as exc:  # noqa: BLE001
             return False, f"the camera could not be read ({exc})"
-        return (live, "the camera feed is live" if live else f"the camera feed is not live ({detail})")
 
     return _open
