@@ -6,7 +6,7 @@
 
 **Architecture:** A small library (`e2e/`) provides the primitives -- board discovery, the web terminal, the camera, the status log, evidence accounting -- and the tests are thin journeys written against it. Everything pure is unit-tested offline against saved HTML and synthetic images, so the library is developed test-first; the three live journeys are verified by running them against production.
 
-**Tech Stack:** Python 3.11+ with `uv`; pytest + `pytest-playwright`; Playwright driving the **system** chromium (the bundled one has no H.264); `tesseract-ocr` for OCR; Pillow + NumPy for image comparison; `paramiko` for the one direct-ssh test; `beautifulsoup4` for HTML parsing; `ruff` for lint.
+**Tech Stack:** Python 3.11+ with `uv`; pytest + `pytest-playwright`; Playwright driving its own chromium, launched with `--autoplay-policy=no-user-gesture-required`; `tesseract-ocr` for OCR; Pillow + NumPy for image comparison; `paramiko` for the one direct-ssh test; `beautifulsoup4` for HTML parsing; `ruff` for lint.
 
 **Spec:** `docs/specs/2026-09-12-fpgas-online-e2e-tests-design.md` in this repository. Its "Background: what the UI actually is", "The evidence model" and "Roadmap" sections are normative; this plan does not repeat them in full.
 
@@ -19,7 +19,7 @@
 - **Never force push.** `main` is protected.
 - **No secrets, ever.** Every credential the suite uses is one the site hands to any visitor. Nothing goes in GitHub Actions secrets.
 - **No temporary files in `/tmp`.** Use a project-local `tmp/` directory, gitignored, and clean up.
-- **Browser is the system chromium**, located via `$CHROMIUM` (default `/usr/bin/chromium`). Never Playwright's bundled Chromium: it has no H.264 and reports `MEDIA_ERR_SRC_NOT_SUPPORTED` on the camera stream.
+- **The browser must launch with `--autoplay-policy=no-user-gesture-required`.** Without it the board page's video never starts: `readyState` stays 0 with no error, which looks exactly like a missing codec. Playwright's bundled chromium decodes the H.264 feed fine (measured 2026-09-12 on 151.0.7922.34); `$CHROMIUM` overrides the binary if you want a different one.
 - **The suite never calls** `/snmp/toggle_all` or `/snmp/off_all`.
 - **OCR runs at the site's default rendering.** Never pass WebSSH's `fontsize`, `fontcolor` or `bgcolor` URL options to make text easier to read.
 - **Camera assertions use element screenshots**, not frames drawn from the decoder. Direct frame reads need a comment saying why a screenshot could not answer the question.
@@ -50,6 +50,12 @@ go green:
    field. Task 10's test fails at the success-page step on both sites.
 3. `/fpgas/tt.html` returns 404 on both sites (the view hardcodes port 21).
    Not covered until Phase 3.
+4. **welland's web terminal never authenticates.** The wssh iframe logs
+   `Authentication failed.` then `socket closed.`, and no `/wssh/ws` WebSocket
+   opens at all. PS1's terminal connects normally from the same browser. Every
+   test that needs a shell therefore fails on welland; develop against ps1.
+5. **welland's `POST /snmp/status` returns HTTP 500**, so the status box never
+   learns the PoE state there. PS1 answers `{state: on}`.
 
 **Local prerequisites.** `sudo apt install chromium tesseract-ocr
 tesseract-ocr-eng fonts-dejavu-core`. Verify before Task 4 with
@@ -1552,11 +1558,10 @@ def on_dead(pytestconfig) -> OnDead:
 
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
-    """Drive the system chromium.
+    """Let the video actually play; optionally use a browser of your choosing.
 
-    Playwright's bundled Chromium ships without H.264, so the camera stream --
-    H.264 in MPEG-TS -- fails with MEDIA_ERR_SRC_NOT_SUPPORTED and every camera
-    assertion silently sees a blank element.
+    The board pages autoplay a muted <video>, which Chrome's autoplay policy
+    blocks under automation, leaving readyState 0 with no error.
     """
     return {**browser_type_launch_args, "executable_path": CHROMIUM}
 
@@ -1695,7 +1700,7 @@ Expected: collects 0 tests without error (no test files yet).
 
 ```bash
 git add tests/conftest.py tests/shared/conftest.py tests/shared/__init__.py
-git commit -m "Test harness: system chromium, clipboard access, board selection, evidence enforcement"
+git commit -m "Test harness: browser launch args, clipboard access, board selection"
 ```
 
 ---
@@ -1786,9 +1791,10 @@ Run: `uv run pytest tests/shared/test_power_cycle.py --site welland -v -s`
 Expected: PASS. The run prints the seed, the board it chose, and the evidence
 summary. It power-cycles one Arty board; that is intended.
 
-If the camera never reports live, check `$CHROMIUM --version` resolves to a
-real chromium with H.264 -- a blank video element is the usual symptom of the
-bundled Playwright browser being used by mistake.
+If the camera never reports live, look at the `player {...}` detail in the
+failure: `readyState: 0, paused: True, error: None` means the player never
+started, which is the autoplay flag missing rather than anything wrong with
+the site.
 
 - [ ] **Step 3: Commit**
 

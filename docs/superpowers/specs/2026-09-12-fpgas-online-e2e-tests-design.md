@@ -86,11 +86,24 @@ xterm buffer API is unreachable from outside.
 
 **The camera stream is H.264/AAC in MPEG-TS.** Parsing the PMT of a live
 segment from `/live/pi-sw2-p16.m3u8` gives `stream_type=0x1b (H.264/AVC)` and
-`stream_type=0x0f (AAC)`. Playwright's bundled Chromium ships without
-proprietary codecs, so it cannot decode this feed --
-`fpgas.online-cam/tests/ci/Dockerfile` records the same discovery, noting
-that it "reports MEDIA_ERR_SRC_NOT_SUPPORTED on this stream", and drives
-Debian's `chromium` instead.
+`stream_type=0x0f (AAC)`. `fpgas.online-cam/tests/ci/Dockerfile` says
+Playwright's bundled Chromium cannot decode this -- it "reports
+MEDIA_ERR_SRC_NOT_SUPPORTED on this stream" -- and drives Debian's
+`chromium` instead.
+
+**That is no longer true, and the real obstacle is different.** Tested
+against the live stream on 2026-09-12, Playwright's bundled chromium
+(151.0.7922.34) decodes it to 1280x1080 at `readyState` 4, exactly as Google
+Chrome does. What *does* stop the video is the browser's **autoplay policy**:
+without `--autoplay-policy=no-user-gesture-required` the player never starts,
+leaving `readyState` 0, `paused` true and `error` null -- which looks exactly
+like a missing codec and is not. The suite passes that flag and uses the
+bundled browser; no distribution browser is required.
+
+`MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')` was tried as
+a guard against a codec-less browser and rejected: it answers true on both
+builds, so it discriminates nothing. The honest check is whether the picture
+is actually advancing, which the liveness primitive already does.
 
 **The Pi burns a clock overlay into the camera picture.**
 `fpgas.online-cam/tests/measure-latency.mjs` OCRs it with tesseract to
@@ -232,7 +245,7 @@ evidence that PS1 works.
 
 ### Stack
 
-**pytest + Playwright for Python**, driving the system chromium, with
+**pytest + Playwright for Python**, driving Playwright's own chromium, with
 paramiko for the one direct-ssh test, tesseract for OCR, and Pillow + NumPy
 for image comparison.
 
@@ -358,10 +371,10 @@ reaches a prompt.
   `fail-fast: false`, so PS1's expected redness never masks a welland
   regression. A separate job for `tinytapeout`.
 - `concurrency: e2e-${{ matrix.site }}`, `cancel-in-progress: false`.
-- Runner setup follows the cam repo's recipe: `apt install chromium
-  tesseract-ocr tesseract-ocr-eng fonts-dejavu-core`, `uv` for Python, and
-  Playwright pointed at the system chromium rather than its own codec-less
-  build.
+- Runner setup: `apt install tesseract-ocr tesseract-ocr-eng
+  fonts-dejavu-core` for OCR, then `playwright install --with-deps chromium
+  ffmpeg` -- `ffmpeg` is what `--video` recording needs, and without it every
+  test errors during setup.
 - Artefacts uploaded on **every** run, not only failures, at least initially:
   a green run's screenshots are what shows the OCR and camera thresholds are
   calibrated rather than accidentally passing.
@@ -385,7 +398,7 @@ uv run pytest tests/shared --site ps1 -k power_cycle --headed
 ```
 
 `--site` takes `welland` or `ps1` and resolves to `https://<site>.fpgas.online`.
-Local runs need the same `chromium` and `tesseract-ocr` packages as CI;
+Local runs need the same `tesseract-ocr` package and browser install as CI;
 `--headed` watches the run in a real window, which is how the camera and OCR
 thresholds get calibrated in the first place.
 
