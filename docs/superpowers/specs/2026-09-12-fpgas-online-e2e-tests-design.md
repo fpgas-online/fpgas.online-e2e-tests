@@ -127,6 +127,19 @@ welland.fpgas.online:24222  TimeoutError
 ps1.fpgas.online:10222      OPEN b'SSH-2.0-OpenSSH_10.0p2 Raspbian-7+deb13u1'
 ```
 
+**welland's web terminal never authenticates.** Loaded in a real browser, the
+wssh iframe logs `Authentication failed.` then `socket closed.`, and no
+`/wssh/ws` WebSocket is opened at all. PS1's terminal connects normally from
+the same browser, so this is welland-specific. Since the web terminal is the
+suite's primary channel for shell work, this blocks tests 1 and 2 there.
+
+**welland's `POST /snmp/status` returns HTTP 500.** The board page calls it on
+load, so the status box never learns the PoE state. PS1 answers `{state: on}`.
+
+Worth stating plainly: **PS1 runs older code but is in better health.** Its
+web terminal connects, its PoE status endpoint answers, and its ssh forward
+ports are reachable -- all three broken on welland.
+
 Two things checked and found *not* to be broken, recorded so nobody
 re-investigates: the VLC URL the page prints (`/live/pi16.m3u8`) and the
 stream the player uses (`/live/pi-sw2-p16.m3u8`) both return live, advancing
