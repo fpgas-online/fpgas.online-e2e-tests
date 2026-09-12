@@ -76,9 +76,16 @@ including its 256 KiB cap and 16-file eviction; and the legacy
 | `/fpgas/tt.html` returns 404 because the view hardcodes port 21 | both | 2026-09-12 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
+**Several PS1 boards have no working web terminal.** Sweeping all nine on
+2026-09-12, five (pi5, pi11, pi13, pi21, pi23) never reached a shell prompt
+within 45s and produced no terminal output at all, while four (pi2, pi3, pi7,
+pi9) connected normally. A user landing on one of the five gets a dead
+terminal with no explanation.
+
 Note the reversal worth keeping in mind: **PS1 runs older code but is in better
-health**. Its web terminal connects, its PoE status endpoint answers, and its
-ssh forward ports are reachable -- all three of which are broken on welland.
+health**. Its web terminal connects on at least some boards, its PoE status
+endpoint answers, and its ssh forward ports are reachable -- all three of
+which are broken on welland.
 
 The suite fails loudly on any of these rather than skipping them. A suite that
 quietly tolerated them would stop being evidence that the service works.
