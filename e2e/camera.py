@@ -112,6 +112,10 @@ class Camera:
         detail = f"clock {first!r} -> {second!r}"
         if not live:
             detail = f"{detail}; player {self.player_state()}"
+            if first is None:
+                # Distinguish "no clock in the picture" from "OCR misread it".
+                raw = ocr.read_clock_debug(crop_fraction(self.shot(), *CLOCK_REGION))
+                detail = f"{detail}; ocr read {raw!r}"
         return live, detail
 
     def wait_until_live(self, timeout: float, gap: float = 3.0) -> str:

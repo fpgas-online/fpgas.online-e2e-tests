@@ -52,10 +52,27 @@ def read_text(image: Image.Image, *, psm: int = 6, whitelist: str | None = None)
     return proc.stdout
 
 
-def read_clock(image: Image.Image) -> str | None:
-    """Read an HH:MM:SS clock, such as the one the Pi burns into the camera picture."""
+def read_clock(image: Image.Image, upscale: int = 3) -> str | None:
+    """Read an HH:MM:SS clock, such as the one the Pi burns into the camera picture.
+
+    Upscaled first. The clock crop off a board page is only about 138x50 with
+    ~20px digits, which tesseract reads unreliably at native size. This is
+    image preprocessing, not a change to how the site renders: the page is
+    still at its normal size and a person can read the clock perfectly well --
+    the same thing fpgas.online-cam/tests/measure-latency.mjs does when it
+    draws the clock region at 3x before OCR.
+    """
+    if upscale > 1:
+        image = image.resize((image.width * upscale, image.height * upscale), Image.LANCZOS)
     match = _CLOCK.search(read_text(image, psm=7, whitelist=CLOCK_WHITELIST))
     return match.group(1) if match else None
+
+
+def read_clock_debug(image: Image.Image, upscale: int = 3) -> str:
+    """What tesseract actually saw, for when read_clock returns None."""
+    if upscale > 1:
+        image = image.resize((image.width * upscale, image.height * upscale), Image.LANCZOS)
+    return read_text(image, psm=7, whitelist=CLOCK_WHITELIST).strip()
 
 
 def strip_ansi(text: str) -> str:

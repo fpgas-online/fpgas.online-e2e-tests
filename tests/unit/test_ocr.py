@@ -27,6 +27,18 @@ def test_read_clock_returns_none_when_there_is_no_clock():
     assert ocr.read_clock(_render("no clock here")) is None
 
 
+def test_read_clock_copes_with_a_small_crop():
+    """The real clock crop is about 138x50 with ~20px digits.
+
+    The video element renders at roughly 460px wide inside the board page, and
+    the clock occupies the top-left 30% x 12% of it, so the crop handed to
+    tesseract is small. Reading it needs upscaling, not a bigger font on the
+    page -- the page is rendering at its normal size and a person can read it.
+    """
+    small = _render("12:34:56", size=(138, 50), fontsize=20)
+    assert ocr.read_clock(small) == "12:34:56"
+
+
 def test_normalise_collapses_whitespace_and_strips():
     assert ocr.normalise("  a \t b\n\n c  ") == "a b c"
 
