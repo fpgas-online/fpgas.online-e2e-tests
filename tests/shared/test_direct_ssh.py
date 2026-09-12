@@ -9,7 +9,12 @@ the page about which board it is.
 import paramiko
 import pytest
 
-from e2e.sshbanner import parse_instructions, password_from_banner, read_banner
+from e2e.sshbanner import (
+    parse_instructions,
+    password_from_banner,
+    read_login_banner,
+    read_version_string,
+)
 
 
 @pytest.mark.live
@@ -24,13 +29,16 @@ def test_ssh_instructions_on_the_page_let_you_log_in(board_page, evidence):
         detail=f"page says: {instructions}",
     )
 
-    banner = read_banner(instructions.host, instructions.port)
+    version = read_version_string(instructions.host, instructions.port)
     evidence.ground_truth(
-        f"{instructions.host}:{instructions.port} answers",
-        banner.startswith("SSH-"),
-        detail=f"banner began: {banner[:120]!r}",
+        f"{instructions.host}:{instructions.port} answers ssh",
+        version.startswith("SSH-"),
+        detail=f"server identified itself as {version.strip()!r}",
     )
 
+    # What a person sees before the password prompt. OpenSSH sends it during
+    # authentication, so it never appears on the raw socket.
+    banner = read_login_banner(instructions.host, instructions.port, instructions.user)
     password = password_from_banner(banner)
     evidence.ground_truth(
         "the login banner contains the password, as the page promises",

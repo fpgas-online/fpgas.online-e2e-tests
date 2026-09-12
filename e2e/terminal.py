@@ -20,7 +20,6 @@ Input is always real keystrokes.
 from __future__ import annotations
 
 import io
-import json
 import re
 import time
 
@@ -28,21 +27,38 @@ from PIL import Image
 
 from e2e import ocr
 
-DEFAULT_PROMPT = r"[$#] $"
+# A shell prompt as it really appears: "06:25:33 pi@pi2:~/Demos/counter_test $ ".
+# Deliberately NOT anchored to the end of the buffer. The board pages attach to
+# a shared tmux session which redraws constantly, so the last thing in the
+# buffer is almost always a redraw or a status line, never the prompt.
+# The \r matters: lines arrive CRLF-terminated, so the trailing class has to
+# absorb the carriage return before $ can match at the line end.
+DEFAULT_PROMPT = r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#][ \t\r]*$"
 _WSSH_WS = "/wssh/ws"
 
 
-def decode_wssh_frames(frames: list[str]) -> str:
-    """Concatenate the terminal output carried by WebSSH's {"data": ...} frames."""
-    out = []
-    for frame in frames:
-        try:
-            payload = json.loads(frame)
-        except (TypeError, ValueError):
-            continue
-        if isinstance(payload, dict) and isinstance(payload.get("data"), str):
-            out.append(payload["data"])
-    return "".join(out)
+def decode_wssh_frames(frames: list[bytes | str]) -> str:
+    """Concatenate the terminal output WebSSH sends.
+
+    The two directions are not symmetric. Client->server is JSON --
+    `sock.send(JSON.stringify({'data': data}))` in WebSSH's main.js. But
+    server->client is BINARY frames of raw terminal bytes, which its client
+    hands straight to xterm via `read_file_as_text(msg.data, term_write,
+    decoder)`. There is no JSON to unwrap on the way in.
+
+    Decoding is lenient because a frame boundary can fall in the middle of a
+    multi-byte character; losing one glyph beats raising mid-test.
+    """
+    return "".join(f.decode("utf-8", "replace") if isinstance(f, bytes) else f for f in frames)
+
+
+def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
+    """Has the shell printed a prompt anywhere in this output?
+
+    Strips ANSI first: the prompt is wrapped in colour codes and followed by
+    more escapes, so matching the raw bytes finds nothing.
+    """
+    return re.search(prompt, ocr.strip_ansi(text), re.MULTILINE) is not None
 
 
 def strip_prompt_and_echo(text: str, command: str, prompt: str = DEFAULT_PROMPT) -> str:
@@ -51,7 +67,7 @@ def strip_prompt_and_echo(text: str, command: str, prompt: str = DEFAULT_PROMPT)
     lines = [line.rstrip("\r") for line in body.split("\n")]
     if lines and command.strip() and command.strip() in lines[0]:
         lines = lines[1:]
-    while lines and re.search(prompt, lines[-1]):
+    while lines and re.search(prompt, lines[-1], re.MULTILINE):
         lines = lines[:-1]
     return "\n".join(lines).strip()
 
@@ -105,7 +121,7 @@ class WebTerminal:
         self.page = page
         self.frame_selector = frame_selector
         self.prompt = prompt
-        self._frames: list[str] = []
+        self._frames: list[bytes | str] = []
 
     # -- lifecycle --
 
@@ -126,7 +142,7 @@ class WebTerminal:
         """Block until the shell has printed a prompt."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if re.search(self.prompt, decode_wssh_frames(self._frames).rstrip()):
+            if at_a_prompt(decode_wssh_frames(self._frames), self.prompt):
                 return
             self.page.wait_for_timeout(500)
         raise TimeoutError(f"no shell prompt within {timeout}s; saw {decode_wssh_frames(self._frames)!r}")
@@ -157,7 +173,7 @@ class WebTerminal:
             raw = decode_wssh_frames(self._frames[mark:])
             if len(raw) != last_len:
                 last_len, quiet_since = len(raw), None
-            elif re.search(self.prompt, raw.rstrip()):
+            elif at_a_prompt(raw, self.prompt):
                 quiet_since = quiet_since or time.monotonic()
                 if time.monotonic() - quiet_since >= settle:
                     break

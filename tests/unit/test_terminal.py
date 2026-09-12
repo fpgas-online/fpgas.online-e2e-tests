@@ -2,15 +2,28 @@ import pytest
 
 from e2e.terminal import TerminalOutput, decode_wssh_frames, strip_prompt_and_echo
 
+# Captured off wss://ps1.fpgas.online/wssh/ws on 2026-09-12. WebSSH sends the
+# server->client direction as BINARY frames of raw terminal bytes -- its own
+# client does read_file_as_text(msg.data, term_write, decoder) and writes them
+# straight to xterm. Only the client->server direction is JSON.
+REAL_FRAME = b"Linux pi2 6.12.75+rpt-rpi-v7 #1 SMP Raspbian 1:6.12.75-1+rpt1 (2026-03-11) armv7l\r\n"
 
-def test_decode_wssh_frames_concatenates_the_data_payloads():
-    frames = ['{"data": "hel"}', '{"data": "lo\\r\\n"}']
-    assert decode_wssh_frames(frames) == "hel" + "lo\r\n"
+
+def test_decode_wssh_frames_decodes_the_binary_frames_webssh_really_sends():
+    assert decode_wssh_frames([REAL_FRAME]) == REAL_FRAME.decode()
 
 
-def test_decode_wssh_frames_ignores_frames_without_data():
-    frames = ['{"status": "ok"}', '{"data": "x"}', "not json at all"]
-    assert decode_wssh_frames(frames) == "x"
+def test_decode_wssh_frames_concatenates_in_order():
+    assert decode_wssh_frames([b"hel", b"lo\r\n"]) == "hello\r\n"
+
+
+def test_decode_wssh_frames_accepts_text_frames_too():
+    assert decode_wssh_frames([b"a", "b"]) == "ab"
+
+
+def test_decode_wssh_frames_does_not_raise_on_undecodable_bytes():
+    """A frame can split a multi-byte character; losing one glyph beats an exception."""
+    assert "ok" in decode_wssh_frames([b"\xff\xfeok"])
 
 
 def test_strip_prompt_and_echo_removes_the_typed_command_and_the_trailing_prompt():
