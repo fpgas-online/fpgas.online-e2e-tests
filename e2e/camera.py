@@ -91,6 +91,12 @@ class Camera:
                 videoWidth: v.videoWidth, readyState: v.readyState,
                 currentTime: Number(v.currentTime.toFixed(1)), paused: v.paused,
                 error: v.error ? `${v.error.code}: ${v.error.message}` : null,
+                // The board pages play HLS, which Chromium cannot handle
+                // natively -- it only works because video.js is fetched from a
+                // third-party CDN. If that fetch fails the element just sits at
+                // readyState 0 forever with no error, so say whether it loaded.
+                videojs: typeof window.videojs,
+                src: v.currentSrc || null,
               };
             }
             """,
