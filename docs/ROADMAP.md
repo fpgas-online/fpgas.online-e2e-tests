@@ -87,7 +87,7 @@ including its 256 KiB cap and 16-file eviction; and the legacy
 
 | Fault | Where | Found |
 |---|---|---|
-| **The web terminal cannot log in.** The wssh iframe reports `Authentication failed.` then `socket closed.`, and no `/wssh/ws` WebSocket is ever opened. PS1's terminal connects normally from the same browser, so this is welland-specific, not a client problem. This blocks every test that needs a shell. | welland | 2026-09-12 |
+| **The web terminal cannot log in, on every board.** A full sweep of all 14 boards (pi-sw2-p16, p29, p33-p38, p42-p44, p46-p48) found not one that reached a shell prompt within 45s; all produced no terminal output whatsoever. In a browser the wssh iframe reports `Authentication failed.` then `socket closed.`, and no `/wssh/ws` WebSocket is opened at all. The same suite, same commit, same browser passes on ps1, so this is welland, not the client. It blocks every test that needs a shell -- which is most of them. | welland | 2026-09-12 |
 | **`POST /snmp/status` returns HTTP 500.** The board page calls it on load ("Check PoE"), so the status box never learns the PoE state. PS1 answers `{state: on}`. | welland | 2026-09-12 |
 | Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
 | `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
