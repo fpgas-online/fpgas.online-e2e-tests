@@ -69,10 +69,16 @@ including its 256 KiB cap and 16-file eviction; and the legacy
 
 | Fault | Where | Found |
 |---|---|---|
+| **The web terminal cannot log in.** The wssh iframe reports `Authentication failed.` then `socket closed.`, and no `/wssh/ws` WebSocket is ever opened. PS1's terminal connects normally from the same browser, so this is welland-specific, not a client problem. This blocks every test that needs a shell. | welland | 2026-09-12 |
+| **`POST /snmp/status` returns HTTP 500.** The board page calls it on load ("Check PoE"), so the status box never learns the PoE state. PS1 answers `{state: on}`. | welland | 2026-09-12 |
 | Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
 | `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
 | `/fpgas/tt.html` returns 404 because the view hardcodes port 21 | both | 2026-09-12 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
+
+Note the reversal worth keeping in mind: **PS1 runs older code but is in better
+health**. Its web terminal connects, its PoE status endpoint answers, and its
+ssh forward ports are reachable -- all three of which are broken on welland.
 
 The suite fails loudly on any of these rather than skipping them. A suite that
 quietly tolerated them would stop being evidence that the service works.
