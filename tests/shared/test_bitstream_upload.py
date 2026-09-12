@@ -14,15 +14,23 @@ from pathlib import Path
 
 import pytest
 
-from e2e.camera import difference
+from e2e.camera import PICTURE_REGION, difference
 
 BITSTREAM = Path(__file__).parents[2] / "fixtures" / "counter_test" / "top.bit"
 REMOTE = "Uploads/top.bit"
-LED_REGION = (0.0, 0.55, 1.0, 0.45)
+
+# PROVISIONAL. These cannot be calibrated until POST /pibup/upload stops
+# returning 500, because no run has yet got as far as programming a board and
+# watching it. They are deliberately low: the scene is dark and an LED change
+# is a small bright patch in a large frame, so a mean difference stays modest.
+# Revisit with real before/after frames once the upload endpoint is fixed.
+CHANGED = 0.005
+STILL_RUNNING = 0.002
 
 
-def _led_difference(a, b) -> float:
-    return difference(a, b, region=LED_REGION)
+def _picture_difference(a, b) -> float:
+    """How much the picture changed, ignoring the clock overlay that always does."""
+    return difference(a, b, region=PICTURE_REGION)
 
 
 @pytest.mark.live
@@ -61,17 +69,17 @@ def test_uploaded_bitstream_programs_the_arty_and_changes_the_leds(board_page, e
 
     camera.wait_until_live(timeout=60)
     after = camera.shot()
-    changed = _led_difference(before, after)
+    changed = _picture_difference(before, after)
     evidence.ground_truth(
-        "the LEDs look different from before the upload",
-        changed > 0.02,
-        detail=f"LED-region difference {changed:.4f}",
+        "the board looks different from before the upload",
+        changed > CHANGED,
+        detail=f"picture difference {changed:.4f} (threshold {CHANGED})",
     )
 
     later = camera.shot()
-    counting = _led_difference(after, later)
+    counting = _picture_difference(after, later)
     evidence.ground_truth(
-        "the LEDs are visibly counting, not frozen",
-        counting > 0.005,
-        detail=f"LED-region difference across two shots {counting:.4f}",
+        "the design is visibly running, not frozen",
+        counting > STILL_RUNNING,
+        detail=f"picture difference across two shots {counting:.4f} (threshold {STILL_RUNNING})",
     )

@@ -23,6 +23,13 @@ from e2e import ocr
 # fpgas.online-cam/tests/measure-latency.mjs uses.
 CLOCK_REGION = (0.0, 0.0, 0.30, 0.12)
 
+# Everything below the clock overlay. Use this when asking "did the picture
+# change?", because the clock changes every second and would answer yes on its
+# own. Deliberately NOT a box around the LEDs: each board's camera is aimed
+# differently -- pi2's view is a dark oblique close-up with indicator lights
+# scattered across the frame -- so any fixed LED box is wrong somewhere.
+PICTURE_REGION = (0.0, 0.15, 1.0, 0.85)
+
 
 def crop_fraction(image: Image.Image, left: float, top: float, width: float, height: float) -> Image.Image:
     w, h = image.size
@@ -48,9 +55,20 @@ class Camera:
         self.page = page
         self.selector = video_selector
 
+    def video_selector(self) -> str:
+        """Where the real <video> lives once video.js has had its way.
+
+        video.js moves the author's id onto a wrapper <div> and renames the
+        media element to "<id>_html5_api", so the obvious selector resolves to
+        a div with no currentTime and no videoWidth. Before the player
+        initialises the id is still on the <video>, hence the fallback.
+        """
+        inner = f"{self.selector} video"
+        return inner if self.page.locator(inner).count() else self.selector
+
     def shot(self) -> Image.Image:
         """A screenshot of the video element as rendered."""
-        return Image.open(io.BytesIO(self.page.locator(self.selector).screenshot()))
+        return Image.open(io.BytesIO(self.page.locator(self.video_selector()).screenshot()))
 
     def clock(self) -> str | None:
         """The clock the Pi burns into the picture, or None if it cannot be read."""
@@ -76,7 +94,7 @@ class Camera:
               };
             }
             """,
-            self.selector,
+            self.video_selector(),
         )
 
     def is_live(self, gap: float = 3.0) -> tuple[bool, str]:
