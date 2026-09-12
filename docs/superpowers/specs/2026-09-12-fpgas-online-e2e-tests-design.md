@@ -73,8 +73,23 @@ A7-35T, 6 Sqrl Acorn CLE-215+, 4 TT FPGA emulation); PS1 has 9.
 
 **The web terminal is [WebSSH](https://github.com/huashengdun/webssh)** at
 `/wssh/`, embedded in an iframe whose URL carries the connection details:
-`?hostname=10.21.2.16&username=pi&title=pi-sw2-p16&password=<PI_PW>`. It
-needs no credentials from us: the page supplies them.
+`?hostname=10.21.2.16&username=pi&title=pi-sw2-p16&password=<PI_PW>` (base64,
+which WebSSH's client decodes with `atob`). It needs no credentials from us:
+the page supplies them.
+
+**The terminal is a shared `tmux` session.** Logging in runs a wrapper that
+attaches to a session named `default`, so everyone who opens a given board
+page is looking at and typing into the *same* shell. Consequences for the
+suite: commands it types are visible to anyone else on that board, its reads
+can pick up other people's output, and the screen is redrawn constantly, so
+the output buffer essentially never *ends* at a prompt. Prompt detection
+therefore searches per line rather than anchoring to the end of the buffer.
+
+**WebSSH's two WebSocket directions are not symmetric.** Client to server is
+JSON (`sock.send(JSON.stringify({'data': data}))`). Server to client is
+*binary frames of raw terminal bytes*, which its client hands straight to
+xterm via `read_file_as_text(msg.data, term_write, decoder)`. There is no JSON
+to unwrap on the way in.
 
 **The terminal renders to a canvas, so its text is not in the DOM.** WebSSH
 bundles xterm.js 4.x -- its `main.js` reads
@@ -111,6 +126,15 @@ measure glass-to-glass latency. Because the camera runs *on the Pi*
 (`fpgas-online-cam`'s `cam.service`), that clock stops when the board loses
 power and resumes when it returns -- visible ground truth for a power cycle,
 requiring no cooperation from the web application.
+
+**The "password is in login banner" promise is real, but not where a naive
+read looks.** Reading the raw socket gets only the `SSH-2.0-OpenSSH_...`
+version string. The banner the page means is `SSH_MSG_USERAUTH_BANNER`, sent
+*during* authentication, which is why a real ssh client prints it just before
+the password prompt. Fetched properly from `ps1.fpgas.online:10222` it is the
+password on a line by itself, matching the base64 in that site's iframe URL.
+So the suite reads it the way a client does: start a transport, attempt the
+`none` auth method every server rejects, and take the banner that elicits.
 
 **The per-board ssh ports advertised on welland are unreachable.** The board
 page tells users `ssh -p 21622 pi@welland.fpgas.online`. That port times out
