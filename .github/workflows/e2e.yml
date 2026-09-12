@@ -31,20 +31,33 @@ jobs:
           sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
       - run: uv run pytest tests/unit -v
 
+  plan:
+    # Which sites to test. This cannot be a job-level `if` on the matrix job:
+    # the `matrix` context is not available when job-level `if` is evaluated.
+    runs-on: ubuntu-latest
+    outputs:
+      sites: ${{ steps.pick.outputs.sites }}
+    steps:
+      - id: pick
+        env:
+          WANTED: ${{ inputs.site || 'both' }}
+        run: |
+          case "$WANTED" in
+            welland) echo 'sites=["welland"]' >> "$GITHUB_OUTPUT" ;;
+            ps1)     echo 'sites=["ps1"]'     >> "$GITHUB_OUTPUT" ;;
+            *)       echo 'sites=["welland","ps1"]' >> "$GITHUB_OUTPUT" ;;
+          esac
+
   shared:
-    needs: unit
+    needs: [unit, plan]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        site: [welland, ps1]
+        site: ${{ fromJSON(needs.plan.outputs.sites) }}
     concurrency:
       group: e2e-${{ matrix.site }}
       cancel-in-progress: false
-    if: >
-      github.event_name != 'workflow_dispatch'
-      || inputs.site == 'both'
-      || inputs.site == matrix.site
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
