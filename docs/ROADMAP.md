@@ -1,7 +1,25 @@
 # Test roadmap
 
-**Implemented:** power cycling, bitstream upload on an Arty, direct ssh
-following the instructions on the board page.
+**Implemented:** a board page's camera and terminal (the fleet-health test),
+power cycling, bitstream upload on an Arty, and direct ssh following the
+instructions on the board page.
+
+The harness is verified end to end against production. From a run on
+2026-09-12 against `ps1.fpgas.online`:
+
+```
+[e2e] testing on pi2
+  ok  [ground truth] the index page lists at least one board
+  ok  [ground truth] pi2's camera is showing a live picture
+        clock '15:11:01' -> '15:11:04'; readyState 4, videoWidth 1280
+  ok  [ground truth] the web terminal reaches the board the page says it is
+  ok  [ground truth] the Pi answers a second command
+```
+
+That one test exercises everything: the camera assertion OCRs the clock the
+Pi burns into the picture and sees it advance, and each terminal command is
+read three ways -- WebSocket bytes, clipboard copy, and OCR of the canvas
+pixels -- and required to agree.
 
 The suite validates the *depth* of one path, not the breadth of identical
 paths: if PoE control works on one board, it is not proven again on thirteen
