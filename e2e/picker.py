@@ -24,9 +24,9 @@ class NoSuchBoard(RuntimeError):
     pass
 
 
-def choose(boards: list[Board], kind: str, seed: int) -> list[Board]:
-    """Candidate boards of `kind`, in a seeded random order."""
-    candidates = [b for b in boards if b.kind == kind]
+def choose(boards: list[Board], kind: str | None, seed: int) -> list[Board]:
+    """Candidate boards of `kind`, in a seeded random order. kind=None means any."""
+    candidates = [b for b in boards if kind is None or b.kind == kind]
     if not candidates:
         listed = ", ".join(sorted({b.kind for b in boards})) or "none"
         raise NoSuchBoard(f"the site lists no {kind!r} board; it lists: {listed}")

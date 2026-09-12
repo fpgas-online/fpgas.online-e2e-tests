@@ -26,12 +26,15 @@ class BoardSession:
 def board_page(page, site, seed, on_dead, evidence):
     """Factory: board_page("arty") -> BoardSession on a live, working board."""
 
-    def _open(kind: str) -> BoardSession:
+    def _open(kind: str | None = None) -> BoardSession:
+        """kind=None means any board, for tests that do not care what FPGA is fitted."""
         page.goto(site.index_url, wait_until="domcontentloaded")
         boards = parse_boards(page.content())
         evidence.ground_truth(
-            f"the index page lists at least one {kind} board",
-            any(b.kind == kind for b in boards),
+            "the index page lists at least one board"
+            if kind is None
+            else f"the index page lists at least one {kind} board",
+            bool(boards) if kind is None else any(b.kind == kind for b in boards),
             detail=f"listed: {[(b.hostname, b.kind) for b in boards]}",
         )
 
