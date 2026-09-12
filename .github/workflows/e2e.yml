@@ -61,15 +61,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Install the browser and OCR engine
-        # Playwright's bundled Chromium has no H.264 and cannot decode the
-        # camera stream, so use the distribution browser.
+      - name: Install the OCR engine
         run: |
           sudo apt-get update
-          sudo apt-get install -y chromium tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+      - name: Install the browser and ffmpeg
+        # ffmpeg is what --video recording needs; without it every test errors
+        # at setup with "Executable doesn't exist at .../ffmpeg-linux".
+        run: uv run playwright install --with-deps chromium ffmpeg
       - name: Run the suite against ${{ matrix.site }}
-        env:
-          CHROMIUM: /usr/bin/chromium
         run: |
           uv run pytest tests/shared -v -s \
             --site ${{ matrix.site }} \

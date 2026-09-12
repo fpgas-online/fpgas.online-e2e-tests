@@ -10,15 +10,21 @@ to any visitor.
 
 ## Running
 
-Requires a browser with H.264 and an OCR engine, from your distribution:
+Requires an OCR engine and a browser:
 
-    sudo apt install chromium tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+    sudo apt install tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+    uv run playwright install chromium ffmpeg
 
-Playwright's own bundled Chromium will **not** work: it ships without
-proprietary codecs, so the camera stream (H.264 in MPEG-TS) fails with
-`MEDIA_ERR_SRC_NOT_SUPPORTED` and every camera assertion quietly sees a blank
-element. Set `$CHROMIUM` to override which browser is used; Google Chrome
-works too.
+`ffmpeg` is what `--video` recording uses; without it every test errors during
+setup.
+
+The camera feed is H.264 in MPEG-TS. Playwright's bundled chromium decodes it
+fine (measured 2026-09-12 on 151.0.7922.34: 1280x1080, `readyState` 4), so no
+distribution browser is needed -- but the suite must launch with
+`--autoplay-policy=no-user-gesture-required`, which `tests/conftest.py` does.
+Without it the player silently never starts: `readyState` stays 0 with no
+error, which looks exactly like a codec failure and is not. Set `$CHROMIUM` to
+use a different browser binary.
 
 Then:
 

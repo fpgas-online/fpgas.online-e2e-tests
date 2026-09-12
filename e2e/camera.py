@@ -56,13 +56,39 @@ class Camera:
         """The clock the Pi burns into the picture, or None if it cannot be read."""
         return ocr.read_clock(crop_fraction(self.shot(), *CLOCK_REGION))
 
+    def player_state(self) -> dict:
+        """What the <video> element itself reports.
+
+        Worth capturing alongside any camera failure: a stalled feed and a
+        player that never started look identical in the picture but are very
+        different faults. readyState 0 with no error and paused=True means the
+        player never began -- usually the browser's autoplay policy.
+        """
+        return self.page.evaluate(
+            """
+            (selector) => {
+              const v = document.querySelector(selector);
+              if (!v) return {error: 'no video element'};
+              return {
+                videoWidth: v.videoWidth, readyState: v.readyState,
+                currentTime: Number(v.currentTime.toFixed(1)), paused: v.paused,
+                error: v.error ? `${v.error.code}: ${v.error.message}` : null,
+              };
+            }
+            """,
+            self.selector,
+        )
+
     def is_live(self, gap: float = 3.0) -> tuple[bool, str]:
         """True when the burned-in clock advanced across two readings `gap` seconds apart."""
         first = self.clock()
         time.sleep(gap)
         second = self.clock()
+        live = first is not None and second is not None and first != second
         detail = f"clock {first!r} -> {second!r}"
-        return (first is not None and second is not None and first != second), detail
+        if not live:
+            detail = f"{detail}; player {self.player_state()}"
+        return live, detail
 
     def wait_until_live(self, timeout: float, gap: float = 3.0) -> str:
         """Block until the feed is live. Returns the detail string; raises on timeout."""

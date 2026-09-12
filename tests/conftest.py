@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import random
-import shutil
 
 import pytest
 
@@ -12,28 +11,12 @@ from e2e.evidence import EvidenceLog
 from e2e.picker import OnDead
 from e2e.site import Site
 
-# Playwright's bundled Chromium ships without proprietary codecs, so the camera
-# stream -- H.264 in MPEG-TS -- fails with MEDIA_ERR_SRC_NOT_SUPPORTED and every
-# camera assertion silently sees a blank element. Use a distribution browser.
-BROWSER_CANDIDATES = (
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-)
-
-
-def _browser_path() -> str:
-    override = os.environ.get("CHROMIUM")
-    if override:
-        return override
-    for candidate in BROWSER_CANDIDATES:
-        if shutil.which(candidate):
-            return candidate
-    raise RuntimeError(
-        "no H.264-capable browser found. Install one (apt install chromium) or set "
-        f"$CHROMIUM. Looked for: {', '.join(BROWSER_CANDIDATES)}"
-    )
+# The board pages autoplay a muted <video>. Chrome's autoplay policy blocks it
+# anyway under automation, leaving readyState 0 with no error -- which looks
+# exactly like a codec failure but is not. Measured 2026-09-12: with this flag
+# both Playwright's bundled chromium (151.0.7922.34) and Google Chrome decode
+# the production H.264/MPEG-TS feed to 1280x1080, readyState 4.
+BROWSER_ARGS = ["--autoplay-policy=no-user-gesture-required"]
 
 
 def pytest_addoption(parser):
@@ -63,8 +46,15 @@ def on_dead(pytestconfig) -> OnDead:
 
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
-    """Drive a distribution browser, never Playwright's codec-less Chromium."""
-    return {**browser_type_launch_args, "executable_path": _browser_path()}
+    """Let the video actually play; optionally use a browser of your choosing."""
+    args = {
+        **browser_type_launch_args,
+        "args": [*browser_type_launch_args.get("args", []), *BROWSER_ARGS],
+    }
+    override = os.environ.get("CHROMIUM")
+    if override:
+        args["executable_path"] = override
+    return args
 
 
 @pytest.fixture(scope="session")
@@ -82,6 +72,8 @@ def evidence() -> EvidenceLog:
     return EvidenceLog()
 
 
+
+
 @pytest.fixture(autouse=True)
 def _require_ground_truth(request, evidence):
     """A test may assert on the site's claims, but may not pass on them alone."""
@@ -90,9 +82,13 @@ def _require_ground_truth(request, evidence):
         return  # unit tests assert directly; only live journeys carry evidence
     if request.node.get_closest_marker("claim_only"):
         return
-    report = getattr(request.node, "rep_call", None)
-    if report is not None and report.failed:
-        return  # the test already failed; do not pile a second error on top
+    # Do not pile a second error on top of a real one. A setup error leaves no
+    # rep_call at all, so both phases have to be checked or the true traceback
+    # gets buried under "passed without observing anything".
+    for phase in ("rep_setup", "rep_call"):
+        report = getattr(request.node, phase, None)
+        if report is not None and not report.passed:
+            return
     print(f"\n[evidence] {request.node.name}\n{evidence.summary()}")
     assert evidence.has_ground_truth, (
         f"{request.node.name} passed without observing anything outside the web application.\n"
