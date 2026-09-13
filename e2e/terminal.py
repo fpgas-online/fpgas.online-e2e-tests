@@ -209,9 +209,16 @@ class WebTerminal:
         command raced the rebuild and died inside the clipboard read, where
         the failure looked like a broken terminal rather than an early one.
         """
-        self.page.frame_locator(self.frame_selector).locator(".xterm-screen").wait_for(
-            state="visible", timeout=timeout * 1000
-        )
+        try:
+            self.page.frame_locator(self.frame_selector).locator(".xterm-screen").wait_for(
+                state="visible", timeout=timeout * 1000
+            )
+        except Exception as exc:
+            # Quote what the iframe is showing. WebSSH puts "Authentication
+            # failed." on screen when it cannot log in, which is the whole
+            # diagnosis and is otherwise thrown away.
+            said = self.page.frame_locator(self.frame_selector).locator("body").inner_text(timeout=5000)
+            raise TimeoutError(f"no terminal within {timeout}s; the iframe reads {said.strip()[:200]!r}") from exc
 
     def _focus(self):
         frame = self.page.frame_locator(self.frame_selector)

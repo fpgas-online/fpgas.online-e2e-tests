@@ -66,6 +66,14 @@ def test_reset_button_power_cycles_the_board(board_page, evidence):
     returned, detail = camera.check_live_with_recovery(timeout=BOOT_BUDGET)
     evidence.ground_truth(f"{name}'s camera feed came back", returned, detail=detail)
 
+    # Wait for the page to say ssh is back before trying to use it. The Pi has
+    # only just rebooted, so clicking "reset ssh" first gets an authentication
+    # failure and no terminal is ever built -- which is what a person would
+    # see too, and why the page announces this. Checking the message at the
+    # end, after reconnecting, made it unfalsifiable as well as useless.
+    seen, detail = session.status.wait_for_new("ssh server started.", baseline, timeout=180)
+    evidence.claim("the status box reports the Pi's ssh server coming back", seen, detail=detail)
+
     session.terminal.reconnect()
     after = _uptime_seconds(session.terminal, evidence, "after the reset")
 
@@ -84,6 +92,3 @@ def test_reset_button_power_cycles_the_board(board_page, evidence):
         after <= elapsed + 30,
         detail=f"uptime {after:.1f}s, {elapsed:.1f}s since the click",
     )
-
-    seen, detail = session.status.wait_for_new("ssh server started.", baseline, timeout=120)
-    evidence.claim("the status box reports the Pi's ssh server coming back", seen, detail=detail)
