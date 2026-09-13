@@ -220,6 +220,7 @@ class WebTerminal:
 
     def run(self, command: str, timeout: float = 30.0, settle: float = 1.5) -> TerminalOutput:
         """Type a command, wait for the prompt, and read the output three ways."""
+        self.wait_for_terminal()
         self._focus()
         mark = len(self._frames)
         self.page.keyboard.type(command)
@@ -254,10 +255,25 @@ class WebTerminal:
 
     # -- the two screen-side readings --
 
+    def _retrying(self, read):
+        """Read the terminal surface, once more if it was mid-rebuild.
+
+        WebSSH does not rebuild the iframe once and settle: after "reset ssh"
+        the xterm appears, the prompt arrives, and the surface can still be
+        torn down and built again underneath. A person waits for it to come
+        back and looks again rather than declaring the terminal broken.
+        """
+        try:
+            return read()
+        except Exception:  # noqa: BLE001 - a rebuild in progress, not a dead terminal
+            self.wait_for_terminal()
+            return read()
+
+
     def _copy_visible(self, timeout: float = 10.0) -> str:
         """Select the terminal viewport and copy, the way a person grabs output."""
         frame = self.page.frame_locator(self.frame_selector)
-        box = frame.locator(".xterm-screen").bounding_box(timeout=timeout * 1000)
+        box = self._retrying(lambda: frame.locator(".xterm-screen").bounding_box(timeout=timeout * 1000))
         if box is None:
             return ""
         self.page.mouse.move(box["x"] + 2, box["y"] + 2)
@@ -268,7 +284,9 @@ class WebTerminal:
         return self.page.evaluate("navigator.clipboard.readText()")
 
     def _ocr_visible(self, timeout: float = 5.0) -> str:
-        shot = self.page.frame_locator(self.frame_selector).locator(".xterm-screen").screenshot(
-            timeout=timeout * 1000
+        shot = self._retrying(
+            lambda: self.page.frame_locator(self.frame_selector)
+            .locator(".xterm-screen")
+            .screenshot(timeout=timeout * 1000)
         )
         return ocr.read_text(Image.open(io.BytesIO(shot)), psm=6)
