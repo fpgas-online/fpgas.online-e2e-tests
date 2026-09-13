@@ -4,8 +4,10 @@ from e2e.terminal import (
     DEFAULT_PROMPT,
     TerminalOutput,
     WebTerminal,
+    at_a_prompt,
     decode_wssh_frames,
     strip_prompt_and_echo,
+    without_cursor,
 )
 
 # Captured off wss://ps1.fpgas.online/wssh/ws on 2026-09-12. WebSSH sends the
@@ -163,3 +165,15 @@ def test_wait_for_prompt_timeout_quotes_the_screen_and_the_socket():
 
     assert "socket closed." in str(caught.value)
     assert "Authentication failed." in str(caught.value)
+
+
+def test_a_prompt_is_still_a_prompt_with_the_cursor_drawn_after_it():
+    """Captured from ps1 pi7 on 2026-09-13.
+
+    xterm draws the cursor as a filled block and tesseract reads it as "[]".
+    Left in place it defeated the end-of-line anchor, and the suite called a
+    terminal dead while quoting a screen with a prompt plainly on it.
+    """
+    screen = "07:26:16 pi@pi7:~ $ cat /proc/uptime\n835.20 3061.42\n07:38:03 pi@pi7:~ $ []\n"
+    assert not at_a_prompt(screen)
+    assert at_a_prompt(without_cursor(screen))

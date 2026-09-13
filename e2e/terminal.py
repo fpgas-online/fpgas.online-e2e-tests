@@ -52,6 +52,19 @@ def decode_wssh_frames(frames: list[bytes | str]) -> str:
     return "".join(f.decode("utf-8", "replace") if isinstance(f, bytes) else f for f in frames)
 
 
+# xterm draws the cursor as a filled block, which tesseract reads as "[]" (or
+# a stray bracket) sitting immediately after the prompt. Captured from ps1
+# pi7 on 2026-09-13: "07:38:03 pi@pi7:~ $ []". Left in place it defeats any
+# end-of-line anchor, so the suite reports a terminal it can plainly see as
+# dead.
+_CURSOR = re.compile(r"[\[\]|_]+[ \t]*$", re.MULTILINE)
+
+
+def without_cursor(text: str) -> str:
+    """Drop the rendered cursor from the end of each line of OCR'd screen text."""
+    return _CURSOR.sub("", text)
+
+
 def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
     """Has the shell printed a prompt anywhere in this output?
 
@@ -175,9 +188,16 @@ class WebTerminal:
             self._last_screen = self._ocr_visible()
         except Exception:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
             return False
-        return at_a_prompt(self._last_screen, self.prompt)
+        return at_a_prompt(without_cursor(self._last_screen), self.prompt)
 
     # -- interaction --
+
+    def reconnect(self) -> None:
+        """Click the page's own 'reset ssh' button, as a person would."""
+        self._frames.clear()
+        self._last_screen = ""
+        self.page.click("#wssh-connect")
+        self.wait_for_prompt()
 
     def _focus(self):
         frame = self.page.frame_locator(self.frame_selector)
