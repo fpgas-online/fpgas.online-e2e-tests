@@ -60,7 +60,7 @@ def test_reset_button_power_cycles_the_board(board_page, evidence):
     seen, detail = session.status.wait_for_new("set power", baseline, timeout=30)
     evidence.claim("the status box reports the PoE port being switched", seen, detail=detail)
 
-    stopped, detail = camera.check_not_live(timeout=90)
+    stopped, detail = camera.check_stopped(timeout=120)
     evidence.ground_truth(f"{name} stopped sending video, so it really lost power", stopped, detail=detail)
 
     returned, detail = camera.check_live_with_recovery(timeout=BOOT_BUDGET)

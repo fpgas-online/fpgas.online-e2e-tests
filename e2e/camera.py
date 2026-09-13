@@ -165,6 +165,34 @@ class Camera:
         live, after = self.check_live(timeout, gap=gap)
         return live, f"the picture needed the page's 'reset video player' button: {detail} -> {after}"
 
+    def check_stopped(self, timeout: float, gap: float = 3.0, consecutive: int = 3) -> tuple[bool, str]:
+        """Wait until the picture is genuinely stuck, not merely discontinuous.
+
+        "Not advancing plausibly" is too weak to mean "the board lost power".
+        A player that stalls and then seeks to the live edge reports a large
+        forward jump, and one recovering from a stall can even read backwards
+        -- measured on welland pi37: '15:59:01' -> '15:59:45' -> '15:59:13'.
+        None of that is a picture that stopped; it is a picture skipping
+        about, which is what a buffer does, not what a dead board does.
+
+        What a person sees when the power goes is a frame that sits there. So
+        require the same reading several times running -- or no readable clock
+        at all, which is the dark-player case -- before saying it stopped.
+        """
+        deadline = time.monotonic() + timeout
+        seen: list[str | None] = []
+        while time.monotonic() < deadline:
+            try:
+                seen.append(self.clock())
+            except Exception:  # noqa: BLE001 - an unreadable picture is a reading too
+                seen.append(None)
+            seen = seen[-consecutive:]
+            if len(seen) == consecutive and all(r == seen[0] for r in seen):
+                stuck = "no clock readable" if seen[0] is None else f"clock stuck at {seen[0]!r}"
+                return True, f"{stuck} across {consecutive} readings {gap}s apart"
+            time.sleep(gap)
+        return False, f"the picture never stuck within {timeout}s; last readings {seen}"
+
     def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
         """Did the picture come alive within the timeout? Reports, never raises.
 

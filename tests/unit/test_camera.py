@@ -70,3 +70,53 @@ def test_clock_advanced_copes_with_midnight():
 def test_clock_advanced_needs_both_readings():
     assert not clock_advanced(None, "05:44:28", gap=3.0)
     assert not clock_advanced("05:44:25", None, gap=3.0)
+
+
+class _FakeClock:
+    """A camera whose clock returns a scripted sequence of readings."""
+
+    def __init__(self, readings):
+        self.readings = list(readings)
+        self.last = readings[-1]
+
+    def clock(self):
+        """Never runs out: a fake that returned one sentinel forever once
+        exhausted would itself look exactly like a stuck picture."""
+        if self.readings:
+            self.last = self.readings.pop(0)
+            return self.last
+        if self.last is None:
+            return None
+        h, m, s = (int(part) for part in self.last.split(":"))
+        total = (h * 3600 + m * 60 + s + 3) % 86400
+        self.last = f"{total // 3600:02d}:{total // 60 % 60:02d}:{total % 60:02d}"
+        return self.last
+
+    def check_stopped(self, *a, **k):
+        return camera.Camera.check_stopped(self, *a, **k)
+
+
+def test_check_stopped_does_not_fire_on_a_player_seeking_in_its_buffer():
+    """Measured on welland pi37: '15:59:01' -> '15:59:45' -> '15:59:13'.
+
+    A stalled player that jumps to the live edge is not a board that lost
+    power, but every one of those steps is "not advancing plausibly".
+    """
+    cam = _FakeClock(["15:59:01", "15:59:45", "15:59:13", "15:59:16", "15:59:19"])
+    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
+    assert not stopped, detail
+
+
+def test_check_stopped_fires_on_a_picture_that_really_sticks():
+    cam = _FakeClock(["15:59:01", "15:59:04", "15:59:07", "15:59:07"])
+    cam.readings.extend(["15:59:07"] * 50)
+    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
+    assert stopped
+    assert "stuck at '15:59:07'" in detail
+
+
+def test_check_stopped_fires_when_the_picture_goes_dark():
+    cam = _FakeClock(["15:59:01", None, None, None, None])
+    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
+    assert stopped
+    assert "no clock readable" in detail
