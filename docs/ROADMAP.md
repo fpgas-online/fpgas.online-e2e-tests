@@ -94,12 +94,13 @@ does, and an address no user can reach is not worth a test.
 
 | Fault | Where | Found |
 |---|---|---|
+| **The Reset button does not power cycle the board.** Clicked on pi16, p37 and p42: the camera kept streaming an advancing clock throughout -- 180s on two of them -- and the status box never showed a `set power` line. Controlled against ps1 pi7 with the same code and the same window in the same run, where the picture stuck at `16:03:12` and the box read `snmp: set power off` / `get power off`. `toggle()` and `status()` share `mk_params()` and the SNMP helpers, and `/snmp/status` returns 500 here, so both directions of PoE control are almost certainly failing the same way. The user is told nothing: `dcws.js` calls `fetch('/snmp/toggle').then((error) => console.log(error))`, which has no error branch at all, so a failed power cycle looks exactly like a successful one. | welland | 2026-09-14 |
 | **The web terminal cannot log in, on every board.** A full sweep of all 14 boards (pi-sw2-p16, p29, p33-p38, p42-p44, p46-p48) found not one that reached a shell prompt within 45s; all produced no terminal output whatsoever. In a browser the wssh iframe reports `Authentication failed.` then `socket closed.`, and no `/wssh/ws` WebSocket is opened at all. The same suite, same commit, same browser passes on ps1, so this is welland, not the client. It blocks every test that needs a shell -- which is most of them. | welland | 2026-09-12 |
 | **`POST /snmp/status` returns HTTP 500.** The board page calls it on load ("Check PoE"), so the status box never learns the PoE state. PS1 answers `{state: on}`. | welland | 2026-09-12 |
 | Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
 | `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
 | **Six of nine boards have no camera stream at all**: `/live/pi{3,5,11,13,21,23}.m3u8` all return HTTP 404, and the player reports `DEMUXER_ERROR_COULD_NOT_OPEN`. pi2, pi7 and pi9 serve 200 with a full segment window. | ps1 | 2026-09-13 |
-| **The camera player fails to start on roughly one page load in six**, leaving a black video on a camera that is streaming fine: `readyState 0`, `paused`, no error, `src` still the `.m3u8` rather than a MediaSource blob. Measured over 19 loads of two healthy boards in fresh browser contexts (welland pi16 8/10, ps1 pi7 8/9); reloading fixes it. Not a cold-start effect -- failures do not cluster at a browser's first load. | both | 2026-09-13 |
+| **The camera player often fails to start**, leaving a black video on a camera that is streaming fine: `readyState 0`, `paused`, no error, `src` still the `.m3u8` rather than a MediaSource blob. Retrying four welland boards three times each gave 10 live out of 12, and a 14-board census misread 4 boards as dead, so the rate is roughly one load in four rather than the one in six first reported. The page's own "reset video player" button clears it, which is why every camera verdict in the suite now clicks it before calling a board dead. | both | 2026-09-13 |
 | **The index names no FPGA type**, so a user cannot tell what hardware a board has before choosing it. welland prints `Digilent Arty A7-35T`; ps1 prints nothing. | ps1 | 2026-09-12 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
@@ -107,9 +108,13 @@ does, and an address no user can reach is not worth a test.
 terminal as first reported. A census on 2026-09-13 found pi5, pi11, pi13,
 pi21 and pi23 failing at every layer at once: no shell prompt, no camera
 stream on the server (`/live/...m3u8` 404), and their ssh forward ports
-refusing or timing out. The hosts are off. pi3 has a working terminal and ssh
-but no camera stream, so its camera service alone is down. Only pi7 and pi9
-are fully healthy; pi2 is healthy server-side but its player would not start.
+refusing or timing out. They are **powered but not responding**, not off:
+the status box reports `snmp: get power on` for all nine boards, including
+every dead one. Only pi7 and pi9 are fully healthy.
+
+pi2 degraded during 2026-09-13: its terminal and camera both worked at 05:35
+and its playlist served six segments; by 11:17 the playlist 404ed and by
+13:00 the terminal was dead too.
 
 A user landing on one of the five gets a page where nothing works, with no
 explanation.
@@ -125,5 +130,30 @@ health** in the parts that matter for logging in. Its web terminal connects on a
 endpoint answers, and its ssh forward ports are reachable -- all three of
 which are broken on welland.
 
+## Withdrawn
+
+**"Navigating between board pages kills the video player"** was reported on
+2026-09-13 and is not a site fault. Playwright's bundled Chromium never
+recovers once a player has failed -- pi7 live, pi9 live, pi2 dead, pi7 dead
+again -- but real Chrome 145 recovers on the next page, and the only board
+that stayed dead in Chrome was ps1 pi2, whose stream was 404ing anyway. The
+fixture still opens each candidate in its own browser context, because doing
+otherwise makes the suite blame boards for its own browser's state.
+
 The suite fails loudly on any of these rather than skipping them. A suite that
 quietly tolerated them would stop being evidence that the service works.
+
+## On the reliability of these findings
+
+Several entries above were first reported wrongly, and the pattern is worth
+recording: every one came from an instrument that had not been validated
+against the thing it claimed to measure. The clock reader called live cameras
+frozen because it could not read grey on grey; a single camera sample called
+working boards dead a quarter of the time; a stopped-picture check counted a
+player seeking in its buffer as a board losing power; and a playlist fetch on
+the server was reported as "the camera works".
+
+The rule the suite now follows: a negative result is not evidence until the
+same instrument has produced a positive one under control, in the same run.
+That is how the welland power-cycle finding above was established, and it is
+why it can be trusted where the earlier claims could not.
