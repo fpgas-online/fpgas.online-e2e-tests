@@ -75,9 +75,11 @@ def _seconds(clock: str) -> int:
 class Camera:
     """The video element on a board page."""
 
-    def __init__(self, page, video_selector: str):
+    def __init__(self, page, video_selector: str, port: int | None = None):
         self.page = page
         self.selector = video_selector
+        # The page's own controls are addressed by switch port.
+        self.port = port if port is not None else video_selector.rsplit("player", 1)[-1]
 
     def video_selector(self) -> str:
         """Where the real <video> lives once video.js has had its way.
@@ -141,6 +143,27 @@ class Camera:
                 raw = ocr.read_clock_debug(crop_fraction(self.shot(), *CLOCK_REGION))
                 detail = f"{detail}; ocr read {raw!r}"
         return live, detail
+
+    def reset_player(self) -> None:
+        """Click the page's own "reset video player" button, as a person would."""
+        self.page.click(f"#refresh-video-player{self.port}")
+
+    def check_live_with_recovery(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Wait for the picture, and if it does not come back, do what a person does.
+
+        A stalled player looks exactly like a dead camera: a frozen frame,
+        readyState stuck below HAVE_FUTURE_DATA. The page offers a "reset
+        video player" button for precisely this, so a person clicks it rather
+        than concluding the board is broken. The detail says whether the
+        button was needed, because a picture that only returns after a manual
+        reset is itself a finding.
+        """
+        live, detail = self.check_live(timeout, gap=gap)
+        if live:
+            return True, detail
+        self.reset_player()
+        live, after = self.check_live(timeout, gap=gap)
+        return live, f"the picture needed the page's 'reset video player' button: {detail} -> {after}"
 
     def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
         """Did the picture come alive within the timeout? Reports, never raises.

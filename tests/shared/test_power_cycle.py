@@ -63,7 +63,7 @@ def test_reset_button_power_cycles_the_board(board_page, evidence):
     stopped, detail = camera.check_not_live(timeout=90)
     evidence.ground_truth(f"{name} stopped sending video, so it really lost power", stopped, detail=detail)
 
-    returned, detail = camera.check_live(timeout=BOOT_BUDGET)
+    returned, detail = camera.check_live_with_recovery(timeout=BOOT_BUDGET)
     evidence.ground_truth(f"{name}'s camera feed came back", returned, detail=detail)
 
     session.terminal.reconnect()
