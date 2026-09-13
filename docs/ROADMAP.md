@@ -97,41 +97,32 @@ including its 256 KiB cap and 16-file eviction; and the legacy
 | **`POST /snmp/status` returns HTTP 500.** The board page calls it on load ("Check PoE"), so the status box never learns the PoE state. PS1 answers `{state: on}`. | welland | 2026-09-12 |
 | Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
 | `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
-| `/fpgas/tt.html` returns 404 because the view hardcodes port 21 | both | 2026-09-12 |
-| **`/live/pi3.m3u8` returns HTTP 404**, so pi3's camera shows nothing. The player reports `DEMUXER_ERROR_COULD_NOT_OPEN ... MediaSource endOfStream before demuxer initialization completes`. The other playlists checked (pi2, pi7, pi9) serve 200 with six segments each, and the segments themselves fetch. | ps1 | 2026-09-13 |
+| **Six of nine boards have no camera stream at all**: `/live/pi{3,5,11,13,21,23}.m3u8` all return HTTP 404, and the player reports `DEMUXER_ERROR_COULD_NOT_OPEN`. pi2, pi7 and pi9 serve 200 with a full segment window. | ps1 | 2026-09-13 |
+| **The camera player fails to start on roughly one page load in six**, leaving a black video on a camera that is streaming fine: `readyState 0`, `paused`, no error, `src` still the `.m3u8` rather than a MediaSource blob. Measured over 19 loads of two healthy boards in fresh browser contexts (welland pi16 8/10, ps1 pi7 8/9); reloading fixes it. Not a cold-start effect -- failures do not cluster at a browser's first load. | both | 2026-09-13 |
 | **The index names no FPGA type**, so a user cannot tell what hardware a board has before choosing it. welland prints `Digilent Arty A7-35T`; ps1 prints nothing. | ps1 | 2026-09-12 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
-**Several PS1 boards have no working web terminal.** Sweeping all nine on
-2026-09-12, five (pi5, pi11, pi13, pi21, pi23) never reached a shell prompt
-within 45s and produced no terminal output at all, while four (pi2, pi3, pi7,
-pi9) connected normally. A user landing on one of the five gets a dead
-terminal with no explanation.
+**Five of PS1's nine boards are down entirely**, not merely missing a
+terminal as first reported. A census on 2026-09-13 found pi5, pi11, pi13,
+pi21 and pi23 failing at every layer at once: no shell prompt, no camera
+stream on the server (`/live/...m3u8` 404), and their ssh forward ports
+refusing or timing out. The hosts are off. pi3 has a working terminal and ssh
+but no camera stream, so its camera service alone is down. Only pi7 and pi9
+are fully healthy; pi2 is healthy server-side but its player would not start.
+
+A user landing on one of the five gets a page where nothing works, with no
+explanation.
+
+**welland is the mirror image.** A census the same day found all 14 boards
+listed with their FPGA types, all 14 camera playlists serving 200 with a full
+segment window, and the cameras showing an advancing clock -- while all 14
+web terminals failed to reach a prompt and all 14 per-board ssh ports timed
+out. The hardware is there and visible; nothing you can log into works.
 
 Note the reversal worth keeping in mind: **PS1 runs older code but is in better
-health**. Its web terminal connects on at least some boards, its PoE status
+health** in the parts that matter for logging in. Its web terminal connects on at least some boards, its PoE status
 endpoint answers, and its ssh forward ports are reachable -- all three of
 which are broken on welland.
 
 The suite fails loudly on any of these rather than skipping them. A suite that
 quietly tolerated them would stop being evidence that the service works.
-
-## Open question: players that never start
-
-`test_bitstream_upload` now proves the whole upload path -- the file lands on
-the Pi at the right size and `openFPGALoader` exits 0 -- and then fails
-waiting for the camera to come back, with the player at `readyState 0`,
-`paused`, no error, `src` still the `.m3u8`.
-
-It is not the server: those playlists return 200 with a full segment window,
-and the segments fetch as `video/mp2t`. It is not the timeout either: a
-healthy player reaches `readyState 4` in about **2 seconds**, so the 60s
-budget is generous.
-
-What it looks like is that the player often fails to start after several
-navigations in one tab -- the failures cluster on boards visited later in a
-session, and the same board that will not start can play immediately in a
-fresh browser. Whether a real user hits this (a black player on a working
-camera) or whether it is peculiar to the automation context is the next thing
-to establish: capture video.js's own logs for a run that fails, rather than
-guessing from the media element's state.
