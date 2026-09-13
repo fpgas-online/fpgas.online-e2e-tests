@@ -190,6 +190,33 @@ class WebTerminal:
             return False
         return at_a_prompt(without_cursor(self._last_screen), self.prompt)
 
+    def wait_until_usable(self, timeout: float = 300.0, settle: float = 5.0) -> None:
+        """Keep reconnecting until the terminal both comes back and stays up.
+
+        Reaching a prompt is not enough after a reboot. sshd accepts early in
+        boot, before the login wrapper can attach to the shared tmux session,
+        so WebSSH connects, draws a prompt, and then the channel closes --
+        leaving its login form and "chan closed" on screen. A person tries
+        again rather than concluding the board is broken.
+
+        A trivial command is the proof: it round-trips only if the channel is
+        still open, and it leaves nothing behind in a session other people
+        share.
+        """
+        deadline = time.monotonic() + timeout
+        last = "never tried"
+        while True:
+            remaining = deadline - time.monotonic()
+            try:
+                self.reconnect(timeout=max(10.0, min(120.0, remaining)))
+                self.run("true", timeout=20.0)
+                return
+            except Exception as exc:  # noqa: BLE001 - a session that died while booting
+                last = f"{type(exc).__name__}: {exc}"
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"the terminal never became usable within {timeout}s ({last})")
+            self.page.wait_for_timeout(int(settle * 1000))
+
     # -- interaction --
 
     def reconnect(self, timeout: float = 300.0, attempt: float = 30.0) -> None:

@@ -219,3 +219,27 @@ def test_reconnect_gives_up_with_what_the_iframe_was_showing():
         term.reconnect(timeout=2.0, attempt=0.5)
 
     assert "Hostname" in str(caught.value)
+
+
+def test_wait_until_usable_tries_again_when_the_channel_closes_after_connecting():
+    """Captured from ps1 pi7 after a real power cycle on 2026-09-13.
+
+    WebSSH connected, drew a prompt, and the channel closed moments later --
+    sshd accepts before the login wrapper can attach to the shared tmux
+    session. The iframe was left showing its login form and "chan closed".
+    """
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
+    term.reconnect = lambda timeout=60.0: None
+
+    tries = []
+
+    def flaky_run(command, timeout=30.0):
+        tries.append(command)
+        if len(tries) < 3:
+            raise TimeoutError("no terminal; the iframe reads '... Connect Reset\\nchan closed'")
+
+    term.run = flaky_run
+    term.wait_until_usable(timeout=60.0, settle=0.01)
+
+    assert tries == ["true"] * 3

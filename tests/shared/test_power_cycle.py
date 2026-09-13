@@ -74,7 +74,9 @@ def test_reset_button_power_cycles_the_board(board_page, evidence):
     seen, detail = session.status.wait_for_new("ssh server started.", baseline, timeout=180)
     evidence.claim("the status box reports the Pi's ssh server coming back", seen, detail=detail)
 
-    session.terminal.reconnect()
+    # Not just "did it come back" but "did it stay up": right after a reboot
+    # the channel can close moments after connecting.
+    session.terminal.wait_until_usable(timeout=300)
     after = _uptime_seconds(session.terminal, evidence, "after the reset")
 
     evidence.ground_truth(
