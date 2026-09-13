@@ -48,6 +48,30 @@ def difference(a: Image.Image, b: Image.Image, region: tuple | None = None) -> f
     return float(np.abs(left - right).mean() / 255.0)
 
 
+def clock_advanced(first: str | None, second: str | None, gap: float) -> bool:
+    """True when the second clock reading is a plausible step on from the first.
+
+    Asking only whether the string changed lets OCR noise counterfeit a live
+    feed: the reader misreads a leading zero as a 2, so a frozen clock can
+    come back as '05:44:25' then '25:44:25' and pass. Requiring a step of
+    roughly the sampling gap means a reading has to be both self-consistent
+    and moving, which noise does not manage twice in a row.
+    """
+    if first is None or second is None:
+        return False
+    try:
+        start, end = _seconds(first), _seconds(second)
+    except ValueError:
+        return False
+    step = (end - start) % 86400  # a run can straddle midnight
+    return 1 <= step <= gap + 5
+
+
+def _seconds(clock: str) -> int:
+    hours, minutes, seconds = (int(part) for part in clock.split(":"))
+    return hours * 3600 + minutes * 60 + seconds
+
+
 class Camera:
     """The video element on a board page."""
 
@@ -108,7 +132,7 @@ class Camera:
         first = self.clock()
         time.sleep(gap)
         second = self.clock()
-        live = first is not None and second is not None and first != second
+        live = clock_advanced(first, second, gap)
         detail = f"clock {first!r} -> {second!r}"
         if not live:
             detail = f"{detail}; player {self.player_state()}"
