@@ -85,6 +85,17 @@ can pick up other people's output, and the screen is redrawn constantly, so
 the output buffer essentially never *ends* at a prompt. Prompt detection
 therefore searches per line rather than anchoring to the end of the buffer.
 
+That is necessary but not sufficient. A shell already sitting at a prompt has
+nothing left to say, so after a buffer reset -- or after navigating back to
+the page -- the prompt was printed before this reading started and the only
+new bytes are tmux repainting its status bar. Waiting on the stream alone
+waits forever for something that already happened, while the screen plainly
+shows a prompt. `wait_for_prompt` therefore presses Enter if the terminal
+stays quiet, which is what a person does when unsure a terminal is alive; it
+costs one blank line in the shared session. The 6 s grace before the first
+press keeps it out of the way of a normal login, which reaches its first
+prompt in about 5 s.
+
 **WebSSH's two WebSocket directions are not symmetric.** Client to server is
 JSON (`sock.send(JSON.stringify({'data': data}))`). Server to client is
 *binary frames of raw terminal bytes*, which its client hands straight to
@@ -242,7 +253,7 @@ fpgas.online-e2e-tests/
 ├── e2e/                        the library the tests are written against
 │   ├── evidence.py             claim() / ground_truth(); the enforcing fixture
 │   ├── site.py                 Site: base URL, boards discovered from /fpgas/
-│   ├── board.py                Board: hostname, port, kind, page URL
+│   ├── board.py                Board: hostname, port, fpga_board, page URL
 │   ├── terminal.py             WebTerminal: keystroke input, triangulated read
 │   ├── statuslog.py            StatusLog: the rendered textarea; claims only
 │   ├── camera.py               Camera: screenshots, clock OCR, diffing
@@ -267,10 +278,19 @@ the first three tests, test twelve is a rewrite.
 
 **Boards are discovered, never hardcoded.** `Site.boards()` parses `/fpgas/`
 for the board cards -- the page a user lands on -- and yields
-`Board(hostname, port, fpga_board)`. `kind` is derived from the board name
-(`Digilent Arty A7-35T` -> `arty`, `Sqrl Acorn CLE-215+` -> `acorn`, `TT FPGA
-emulation` -> `tt`). New hardware needs no code change, and PS1's different
-card format is one parser branch.
+`Board(hostname, port, fpga_board)`. New hardware needs no code change, and
+PS1's different card format is one parser branch.
+
+**Every board is assumed to be an Arty.** The original design derived a
+`kind` from the board name (`Digilent Arty A7-35T` -> `arty`, `Sqrl Acorn
+CLE-215+` -> `acorn`) and selected on it. In practice that meant the Arty
+tests ran nowhere: PS1 names no FPGA at all, so every board there parsed as
+`unknown` and the tests failed on the selection gate, in 21 seconds, without
+opening a board page; welland names types but its terminal is down
+fleet-wide. Selecting on the advertised type made the suite hostage to the
+index page's copy. A board that turns out not to be an Arty now fails inside
+the test, where the message names the real problem, and the thin PS1 card is
+reported as the user-facing fault it is.
 
 ### Handling the version skew
 
@@ -319,7 +339,7 @@ Steps are tagged **[G]** ground truth or **[C]** claim.
 
 ### Test 1 -- power cycling
 
-On a random Arty board page:
+On a random board page:
 
 1. Confirm the feed is live: OCR the burned-in clock in two screenshots a few
    seconds apart and see it advance. **[G]**
@@ -371,9 +391,9 @@ Expected to fail on welland until the per-board ssh forwards are reachable.
 
 ## Board selection and not being disruptive
 
-**Selection.** Boards come from `/fpgas/`, are filtered to the kind the test
-needs, then shuffled with a run-seeded RNG whose seed is printed, so any run
-can be replayed against the same board. Before committing to a board, a
+**Selection.** Boards come from `/fpgas/` and are shuffled with a run-seeded
+RNG whose seed is printed, so any run can be replayed against the same board.
+There is no filtering: every board the index lists is a candidate. Before committing to a board, a
 ~20 s liveness glance: the page loads, the video is playing, the terminal
 reaches a prompt.
 
@@ -392,8 +412,8 @@ reaches a prompt.
 - A GitHub Actions `concurrency` group per site prevents a manual run
   colliding with the schedule. Cheaper and cleaner than lock files on the
   Pis.
-- With 4 Arty boards on welland and 6-hourly runs, a given Arty is touched
-  roughly once a day.
+- With 14 boards on welland, 9 on PS1 and 6-hourly runs, a given board is
+  touched every few days.
 - Tests do not restore prior state -- visible side effects are accepted --
   but must not leave a board worse than found. After test 2 the Arty runs
   `counter_test`, a normal state a user could have left it in.
@@ -402,8 +422,8 @@ reaches a prompt.
 
 `.github/workflows/e2e.yml`:
 
-- `schedule: "0 */6 * * *"`, plus `workflow_dispatch` with site, board-kind
-  and test selectors.
+- `schedule: "0 */6 * * *"`, plus `workflow_dispatch` with `site`, `seed`
+  (to replay a previous run's board choice) and `on_dead`.
 - A matrix over `welland` and `ps1` for the shared tests with
   `fail-fast: false`, so PS1's expected redness never masks a welland
   regression. A separate job for `tinytapeout`.
