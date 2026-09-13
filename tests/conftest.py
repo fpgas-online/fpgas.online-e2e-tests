@@ -90,6 +90,14 @@ def _require_ground_truth(request, evidence):
         if report is not None and not report.passed:
             return
     print(f"\n[evidence] {request.node.name}\n{evidence.summary()}")
+    # Claims are recorded rather than raised as they happen, so that a test
+    # always gets as far as observing reality. They still have to hold: a
+    # status box that never said what it should is a real finding, it is just
+    # not a reason to stop watching the board.
+    assert not evidence.failures, (
+        f"{request.node.name} recorded evidence that did not hold:\n"
+        + "\n".join(f"  [{e.kind.value}] {e.description}\n    {e.detail}" for e in evidence.failures)
+    )
     assert evidence.has_ground_truth, (
         f"{request.node.name} passed without observing anything outside the web application.\n"
         f"Add a ground-truth assertion, or mark the test "

@@ -91,66 +91,75 @@ def test_shows_rejects_an_empty_needle(needle):
         out.shows(needle)
 
 
-class _FakeClickable:
-    def click(self, **_kwargs):
-        pass
-
-
-class _FakeFrame:
-    def locator(self, _selector):
-        return _FakeClickable()
-
-
 class _FakeKeyboard:
-    def __init__(self, on_enter):
-        self._on_enter = on_enter
+    def __init__(self):
+        self.pressed = []
 
     def press(self, key):
-        if key == "Enter":
-            self._on_enter()
+        self.pressed.append(key)
+
+    def type(self, text):
+        self.pressed.append(text)
 
 
 class _FakePage:
-    """Just enough page for wait_for_prompt: a clickable terminal and a keyboard."""
+    """Just enough page for wait_for_prompt, and a keyboard that records abuse."""
 
-    def __init__(self, on_enter=lambda: None, focusable=True):
-        self.keyboard = _FakeKeyboard(on_enter)
-        self._focusable = focusable
-        self.enters = 0
-
-    def frame_locator(self, _selector):
-        if not self._focusable:
-            raise RuntimeError("no terminal to click: the iframe is still connecting")
-        return _FakeFrame()
+    def __init__(self):
+        self.keyboard = _FakeKeyboard()
 
     def wait_for_timeout(self, _ms):
         pass
 
 
-def test_wait_for_prompt_presses_enter_when_the_shell_is_already_sitting_at_one():
-    """An idle shell has nothing left to say.
+def _terminal(page, frames, screen):
+    term = WebTerminal.__new__(WebTerminal)
+    term.frame_selector = "#wssh_if"
+    term.prompt = DEFAULT_PROMPT
+    term._frames = list(frames)
+    term._last_screen = ""
+    term.page = page
+    term._ocr_visible = lambda: screen
+    return term
 
-    After reset(), or after navigating back to the page, the prompt was printed
-    before we started reading and the only new bytes are tmux repainting its
-    status bar. Pressing Enter is what a person does when unsure a terminal is
-    alive, and it makes the shell print a fresh prompt we can see.
+
+def test_wait_for_prompt_believes_the_screen_when_the_socket_is_silent():
+    """A shell already at a prompt has nothing left to say.
+
+    After reset(), or after navigating back, the prompt was printed before
+    this buffer started and the only new bytes are tmux repainting its status
+    bar -- but the prompt is plainly there on screen, which is what a person
+    judges by.
     """
-    terminal = WebTerminal.__new__(WebTerminal)
-    terminal.frame_selector = "#wssh_if"
-    terminal.prompt = DEFAULT_PROMPT
-    terminal._frames = [b"\x1b[30m\x1b[42m\x1b[24;1H[default-20:bash*    pi7 01:43am\x1b(B\x1b[m"]
-    terminal.page = _FakePage(on_enter=lambda: terminal._frames.append(b"\r\npi@pi7:~ $ "))
+    page = _FakePage()
+    status_bar_only = [b"\x1b[30m\x1b[42m\x1b[24;1H[default-20:bash*    pi7 01:43am\x1b(B\x1b[m"]
+    term = _terminal(page, status_bar_only, screen="07:04:46 pi@pi7:~ $ \n")
 
-    terminal.wait_for_prompt(timeout=2.0, nudge_after=0.0)
+    term.wait_for_prompt(timeout=2.0)
 
 
-def test_wait_for_prompt_survives_a_terminal_that_is_not_clickable_yet():
-    """The nudge must never turn a timeout into a different, misleading error."""
-    terminal = WebTerminal.__new__(WebTerminal)
-    terminal.frame_selector = "#wssh_if"
-    terminal.prompt = DEFAULT_PROMPT
-    terminal._frames = []
-    terminal.page = _FakePage(focusable=False)
+def test_wait_for_prompt_never_types_into_a_shared_session():
+    """The terminal is a shared tmux session.
+
+    Pressing Enter to make an idle shell print a prompt would submit whatever
+    another person has half-typed on that line. Looking costs nothing.
+    """
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
 
     with pytest.raises(TimeoutError):
-        terminal.wait_for_prompt(timeout=0.5, nudge_after=0.0)
+        term.wait_for_prompt(timeout=0.5)
+
+    assert page.keyboard.pressed == []
+
+
+def test_wait_for_prompt_timeout_quotes_the_screen_and_the_socket():
+    """A person reporting a dead terminal says what it showed them."""
+    page = _FakePage()
+    term = _terminal(page, frames=[b"Authentication failed."], screen="socket closed.")
+
+    with pytest.raises(TimeoutError) as caught:
+        term.wait_for_prompt(timeout=0.5)
+
+    assert "socket closed." in str(caught.value)
+    assert "Authentication failed." in str(caught.value)

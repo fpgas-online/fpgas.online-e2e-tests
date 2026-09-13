@@ -142,6 +142,25 @@ class Camera:
                 detail = f"{detail}; ocr read {raw!r}"
         return live, detail
 
+    def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Did the picture come alive within the timeout? Reports, never raises.
+
+        For assertions, so the evidence log records what was actually seen.
+        wait_until_live raises instead, which suits a precondition but makes
+        any evidence entry built on it a constant.
+        """
+        try:
+            return True, self._wait(True, timeout, gap)
+        except TimeoutError as exc:
+            return False, str(exc)
+
+    def check_not_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Did the picture stop advancing within the timeout? Reports, never raises."""
+        try:
+            return True, self._wait(False, timeout, gap)
+        except TimeoutError as exc:
+            return False, str(exc)
+
     def wait_until_live(self, timeout: float, gap: float = 3.0) -> str:
         """Block until the feed is live. Returns the detail string; raises on timeout."""
         return self._wait(True, timeout, gap)

@@ -32,7 +32,11 @@ def board_page(page, site, seed, on_dead, evidence):
     def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
         boards = parse_boards(page.content())
-        evidence.ground_truth(
+        # A claim, not ground truth: this is the site talking about itself.
+        # Recording it as ground truth satisfied has_ground_truth for every
+        # live test before its body ran, which disarmed the one guard the
+        # suite has against passing on claims alone.
+        evidence.claim(
             "the index page lists at least one board",
             bool(boards),
             detail=f"listed: {[(b.hostname, b.fpga_board) for b in boards]}",

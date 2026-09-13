@@ -49,11 +49,28 @@ class EvidenceLog:
     def _record(self, kind: EvidenceKind, description: str, condition: object, detail: str) -> None:
         passed = bool(condition)
         self.entries.append(Evidence(kind, description, detail, passed))
-        if not passed:
-            message = f"[{kind.value}] {description}"
-            if detail:
-                message = f"{message}\n  {detail}"
-            raise AssertionError(message)
+        if passed:
+            return
+        # A failed claim is recorded and re-raised at the end of the test, not
+        # here. Raising here stopped the test before it could gather the
+        # ground truth: on welland, where the PoE status endpoint 500s, the
+        # power-cycle test aborted on the status box and never watched the
+        # board actually reboot -- reporting the first thing it happened to
+        # check instead of what the user experiences. Ground truth still
+        # raises: once an observation of reality has failed, carrying on
+        # proves nothing.
+        if kind is EvidenceKind.GROUND_TRUTH:
+            raise AssertionError(self._message(kind, description, detail))
+
+    @staticmethod
+    def _message(kind: EvidenceKind, description: str, detail: str) -> str:
+        message = f"[{kind.value}] {description}"
+        return f"{message}\n  {detail}" if detail else message
+
+    @property
+    def failures(self) -> list[Evidence]:
+        """Everything recorded that did not hold, in the order it was observed."""
+        return [e for e in self.entries if not e.passed]
 
     @property
     def has_ground_truth(self) -> bool:

@@ -45,10 +45,16 @@ def test_uploaded_bitstream_programs_the_arty_and_changes_the_leds(board_page, e
     page.click("#upform input[type=submit]")
     page.wait_for_load_state("domcontentloaded")
 
+    # Read the rendered text, not the HTML source, and name the board. The
+    # site runs with DEBUG=True, so a failed upload renders Django's technical
+    # traceback -- whose source listing contains "handle_uploaded_file". The
+    # old check, `"uploaded" in page.content()`, therefore passed on the very
+    # crash this test exists to catch.
+    landed = page.inner_text("body")
     evidence.claim(
         "the upload form reports success",
-        "uploaded" in page.content().lower(),
-        detail=f"landed on {page.url} showing: {page.content()[:400]!r}",
+        "uploaded" in landed.lower() and f"pino={session.board.port}" in landed.replace(" ", ""),
+        detail=f"landed on {page.url} showing: {landed[:400]!r}",
     )
 
     page.go_back()
