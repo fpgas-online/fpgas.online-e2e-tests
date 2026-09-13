@@ -192,13 +192,35 @@ class WebTerminal:
 
     # -- interaction --
 
-    def reconnect(self) -> None:
-        """Click the page's own 'reset ssh' button, as a person would."""
-        self._frames.clear()
-        self._last_screen = ""
-        self.page.click("#wssh-connect")
-        self.wait_for_terminal()
-        self.wait_for_prompt()
+    def reconnect(self, timeout: float = 300.0, attempt: float = 30.0) -> None:
+        """Click the page's own 'reset ssh' button until the terminal comes back.
+
+        One click is not enough after a power cycle. The Pi takes minutes to
+        boot, and WebSSH falls back to its blank login form -- "Hostname Port
+        Username Password ... Connect" -- whenever auto-connect fails, and
+        then sits there. That form means "not yet", not "broken": on a healthy
+        board the same click reconnects immediately. A person waits a little
+        and clicks reset ssh again, which is what this does, until the
+        terminal is really back or the deadline passes.
+        """
+        deadline = time.monotonic() + timeout
+        last = ""
+        while True:
+            self._frames.clear()
+            self._last_screen = ""
+            self.page.click("#wssh-connect")
+            remaining = deadline - time.monotonic()
+            try:
+                self.wait_for_terminal(timeout=max(1.0, min(attempt, remaining)))
+                break
+            except TimeoutError as exc:
+                last = str(exc)
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"the terminal never came back within {timeout}s of clicking 'reset ssh' ({last})"
+                    ) from exc
+                self.page.wait_for_timeout(5000)
+        self.wait_for_prompt(timeout=max(10.0, deadline - time.monotonic()))
 
     def wait_for_terminal(self, timeout: float = 60.0) -> None:
         """Wait for the terminal surface itself to be on the page.

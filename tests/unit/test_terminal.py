@@ -109,6 +109,10 @@ class _FakePage:
 
     def __init__(self):
         self.keyboard = _FakeKeyboard()
+        self.clicks = []
+
+    def click(self, selector):
+        self.clicks.append(selector)
 
     def wait_for_timeout(self, _ms):
         pass
@@ -177,3 +181,41 @@ def test_a_prompt_is_still_a_prompt_with_the_cursor_drawn_after_it():
     screen = "07:26:16 pi@pi7:~ $ cat /proc/uptime\n835.20 3061.42\n07:38:03 pi@pi7:~ $ []\n"
     assert not at_a_prompt(screen)
     assert at_a_prompt(without_cursor(screen))
+
+
+def test_reconnect_clicks_reset_ssh_again_while_webssh_shows_its_login_form():
+    """After a power cycle the Pi is still booting, so the first click fails.
+
+    WebSSH falls back to a blank login form when auto-connect fails and then
+    sits there. That means "not yet", not "broken" -- the same click works
+    immediately on a healthy board -- so a person waits and clicks again.
+    """
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
+    term.wait_for_prompt = lambda timeout=60.0: None
+
+    attempts = []
+
+    def not_yet(timeout=60.0):
+        attempts.append(timeout)
+        if len(attempts) < 3:
+            raise TimeoutError("no terminal; the iframe reads 'Hostname Port Username Password ... Connect'")
+
+    term.wait_for_terminal = not_yet
+    term.reconnect(timeout=60.0, attempt=1.0)
+
+    assert page.clicks == ["#wssh-connect"] * 3
+
+
+def test_reconnect_gives_up_with_what_the_iframe_was_showing():
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
+
+    def never(timeout=60.0):
+        raise TimeoutError("no terminal; the iframe reads 'Hostname Port Username Password ... Connect'")
+
+    term.wait_for_terminal = never
+    with pytest.raises(TimeoutError) as caught:
+        term.reconnect(timeout=2.0, attempt=0.5)
+
+    assert "Hostname" in str(caught.value)
