@@ -82,6 +82,12 @@ def _require_ground_truth(request, evidence):
         return  # unit tests assert directly; only live journeys carry evidence
     if request.node.get_closest_marker("claim_only"):
         return
+    # The ledger is printed whether the test passed or failed. A failing run is
+    # the one where knowing which claims held and which did not matters most,
+    # and printing it only on success meant every failure arrived with the
+    # evidence discarded.
+    print(f"\n[evidence] {request.node.name}\n{evidence.summary()}")
+
     # Do not pile a second error on top of a real one. A setup error leaves no
     # rep_call at all, so both phases have to be checked or the true traceback
     # gets buried under "passed without observing anything".
@@ -89,7 +95,6 @@ def _require_ground_truth(request, evidence):
         report = getattr(request.node, phase, None)
         if report is not None and not report.passed:
             return
-    print(f"\n[evidence] {request.node.name}\n{evidence.summary()}")
     # Claims are recorded rather than raised as they happen, so that a test
     # always gets as far as observing reality. They still have to hold: a
     # status box that never said what it should is a real finding, it is just
