@@ -24,21 +24,21 @@ class BoardSession:
 
 @pytest.fixture
 def board_page(page, site, seed, on_dead, evidence):
-    """Factory: board_page("arty") -> BoardSession on a live, working board."""
+    """Factory: board_page() -> BoardSession on a live, working board.
 
-    def _open(kind: str | None = None) -> BoardSession:
-        """kind=None means any board, for tests that do not care what FPGA is fitted."""
+    Any board the index lists will do, and every one is assumed to be an Arty.
+    """
+
+    def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
         boards = parse_boards(page.content())
         evidence.ground_truth(
-            "the index page lists at least one board"
-            if kind is None
-            else f"the index page lists at least one {kind} board",
-            bool(boards) if kind is None else any(b.kind == kind for b in boards),
-            detail=f"listed: {[(b.hostname, b.kind) for b in boards]}",
+            "the index page lists at least one board",
+            bool(boards),
+            detail=f"listed: {[(b.hostname, b.fpga_board) for b in boards]}",
         )
 
-        candidates = choose(boards, kind, seed)
+        candidates = choose(boards, seed)
         problems = []
         for board in candidates:
             session = _attach(board)

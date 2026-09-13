@@ -23,7 +23,7 @@ def _uptime_seconds(terminal, evidence, when: str) -> float:
 
 @pytest.mark.live
 def test_reset_button_power_cycles_the_board(board_page, evidence):
-    session = board_page("arty")
+    session = board_page()
     board, page = session.board, session.page
     name = board.hostname
 

@@ -19,7 +19,7 @@ from e2e.sshbanner import (
 
 @pytest.mark.live
 def test_ssh_instructions_on_the_page_let_you_log_in(board_page, evidence):
-    session = board_page("arty")
+    session = board_page()
     board, page, terminal = session.board, session.page, session.terminal
 
     instructions = parse_instructions(page.inner_text("body"))

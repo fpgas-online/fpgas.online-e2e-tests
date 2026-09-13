@@ -25,6 +25,12 @@ The suite validates the *depth* of one path, not the breadth of identical
 paths: if PoE control works on one board, it is not proven again on thirteen
 more. One board is picked at random per run.
 
+Every board is assumed to be an Arty. The sites do not reliably say what FPGA
+is fitted -- ps1 names none at all -- so selecting by the advertised type only
+meant the Arty tests refused to run anywhere. A board that turns out not to be
+an Arty now fails inside the test, where the failure names the real problem
+rather than being hidden behind a selection gate.
+
 Steps are tagged **[G]** ground truth (observed outside the web application)
 or **[C]** claim (what the site says about itself). A test may assert on a
 claim, but may never pass on claims alone.
@@ -92,6 +98,7 @@ including its 256 KiB cap and 16-file eviction; and the legacy
 | Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
 | `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
 | `/fpgas/tt.html` returns 404 because the view hardcodes port 21 | both | 2026-09-12 |
+| **The index names no FPGA type**, so a user cannot tell what hardware a board has before choosing it. welland prints `Digilent Arty A7-35T`; ps1 prints nothing. | ps1 | 2026-09-12 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
 **Several PS1 boards have no working web terminal.** Sweeping all nine on

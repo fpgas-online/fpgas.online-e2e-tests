@@ -34,17 +34,6 @@ def test_ps1_index_lists_nine_boards_with_the_older_heading_format(ps1_boards):
     assert ps1_boards[0].port == 2
 
 
-def test_board_kind_is_derived_from_the_fpga_name(welland_boards):
-    kinds = {b.hostname: b.kind for b in welland_boards}
-    assert kinds["pi-sw2-p16"] == "arty"
-    assert kinds["pi-sw2-p29"] == "acorn"
-    assert kinds["pi-sw2-p33"] == "tt"
-
-
-def test_a_board_with_no_fpga_named_is_unknown_kind(ps1_boards):
-    assert ps1_boards[0].kind == "unknown"
-
-
 def test_page_path_uses_the_port_not_the_hostname(welland_boards):
     assert welland_boards[0].page_path == "/fpgas/pi16.html"
 

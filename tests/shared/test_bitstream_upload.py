@@ -35,7 +35,7 @@ def _picture_difference(a, b) -> float:
 
 @pytest.mark.live
 def test_uploaded_bitstream_programs_the_arty_and_changes_the_leds(board_page, evidence):
-    session = board_page("arty")
+    session = board_page()
     page, terminal, camera = session.page, session.terminal, session.camera
 
     camera.wait_until_live(timeout=60)
