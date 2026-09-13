@@ -138,14 +138,46 @@ class WebTerminal:
         """Forget buffered output -- e.g. after navigating away and back."""
         self._frames.clear()
 
-    def wait_for_prompt(self, timeout: float = 60.0) -> None:
-        """Block until the shell has printed a prompt."""
+    def wait_for_prompt(self, timeout: float = 60.0, nudge_after: float = 6.0, nudge_every: float = 10.0) -> None:
+        """Block until the shell shows a prompt, pressing Enter if it stays quiet.
+
+        A shell already sitting at a prompt has nothing left to say. After
+        reset(), or after navigating back to the page, the prompt was printed
+        before this buffer started and the only new bytes are tmux repainting
+        its status bar -- so waiting on the stream alone waits forever for
+        something that already happened, while the screen plainly shows a
+        prompt. Pressing Enter is what a person does when they are not sure a
+        terminal is alive; it makes the shell print a fresh prompt, and costs
+        one blank line in the shared tmux session.
+
+        The grace period keeps the nudge out of the way of a normal login,
+        which reaches its first prompt in about 5 seconds.
+        """
         deadline = time.monotonic() + timeout
+        next_nudge = time.monotonic() + nudge_after
         while time.monotonic() < deadline:
             if at_a_prompt(decode_wssh_frames(self._frames), self.prompt):
                 return
+            if time.monotonic() >= next_nudge:
+                self._press_enter()
+                next_nudge = time.monotonic() + nudge_every
             self.page.wait_for_timeout(500)
         raise TimeoutError(f"no shell prompt within {timeout}s; saw {decode_wssh_frames(self._frames)!r}")
+
+    def _press_enter(self) -> None:
+        """Ask an idle shell for a fresh prompt.
+
+        Never fatal and never slow: a terminal that is still connecting has
+        nothing to click, and that is a reason to keep waiting rather than a
+        different error to report. The short click timeout matters --
+        Playwright's default is 30s, which would swallow the caller's budget.
+        """
+        try:
+            frame = self.page.frame_locator(self.frame_selector)
+            frame.locator(".xterm-screen").click(timeout=2000)
+            self.page.keyboard.press("Enter")
+        except Exception:  # noqa: BLE001 - any failure here just means "not yet"
+            pass
 
     def reconnect(self) -> None:
         """Click the page's own 'reset ssh' button, as a person would."""
