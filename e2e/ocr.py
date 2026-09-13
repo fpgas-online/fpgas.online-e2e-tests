@@ -52,27 +52,43 @@ def read_text(image: Image.Image, *, psm: int = 6, whitelist: str | None = None)
     return proc.stdout
 
 
-def read_clock(image: Image.Image, upscale: int = 3) -> str | None:
-    """Read an HH:MM:SS clock, such as the one the Pi burns into the camera picture.
+def _clock_readings(image: Image.Image, upscale: int):
+    """The ways to show tesseract a clock, cheapest first.
 
-    Upscaled first. The clock crop off a board page is only about 138x50 with
-    ~20px digits, which tesseract reads unreliably at native size. This is
-    image preprocessing, not a change to how the site renders: the page is
-    still at its normal size and a person can read the clock perfectly well --
-    the same thing fpgas.online-cam/tests/measure-latency.mjs does when it
-    draws the clock region at 3x before OCR.
+    The Pi burns its clock over whatever the camera sees. On a dark picture
+    that is white on near-black and reads straight off. On an overexposed one
+    -- welland's pi37, say -- it is light grey on mid grey, which a person
+    reads at a glance and which plain tesseract returns nothing at all for.
+    Thresholding and inverting gives it the black-on-white it is happiest
+    with, and psm 11 (sparse text) finds the digits when psm 7 sees no single
+    line to read.
+
+    This is preprocessing of a screenshot, not a change to how the site
+    renders: the page is at its normal size and the clock is plainly legible.
     """
-    if upscale > 1:
-        image = image.resize((image.width * upscale, image.height * upscale), Image.LANCZOS)
-    match = _CLOCK.search(read_text(image, psm=7, whitelist=CLOCK_WHITELIST))
-    return match.group(1) if match else None
+    big = image.resize((image.width * upscale, image.height * upscale), Image.LANCZOS) if upscale > 1 else image
+    yield big, 7
+    grey = big.convert("L")
+    for cut in (200, 160):
+        yield grey.point(lambda v, c=cut: 0 if v > c else 255), 11
+
+
+def read_clock(image: Image.Image, upscale: int = 3) -> str | None:
+    """Read an HH:MM:SS clock, such as the one the Pi burns into the camera picture."""
+    for candidate, psm in _clock_readings(image, upscale):
+        match = _CLOCK.search(read_text(candidate, psm=psm, whitelist=CLOCK_WHITELIST))
+        if match:
+            return match.group(1)
+    return None
 
 
 def read_clock_debug(image: Image.Image, upscale: int = 3) -> str:
-    """What tesseract actually saw, for when read_clock returns None."""
-    if upscale > 1:
-        image = image.resize((image.width * upscale, image.height * upscale), Image.LANCZOS)
-    return read_text(image, psm=7, whitelist=CLOCK_WHITELIST).strip()
+    """What tesseract saw on each attempt, for when read_clock returns None."""
+    seen = [
+        f"psm{psm}: {read_text(candidate, psm=psm, whitelist=CLOCK_WHITELIST).strip()!r}"
+        for candidate, psm in _clock_readings(image, upscale)
+    ]
+    return "; ".join(seen)
 
 
 def strip_ansi(text: str) -> str:
