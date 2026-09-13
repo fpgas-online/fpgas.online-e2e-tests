@@ -86,8 +86,9 @@ application with a different UI: catalogue cards and live/coming-soon states;
 the status pill; `Power-cycle board`; `Reset video`; the Commander embed's
 serial terminal over the RP2040 WebSocket bridge; the design gallery loading
 from the Pi daemon; Run/enable with a `clock_hz`; the `.bin` upload form
-including its 256 KiB cap and 16-file eviction; and the legacy
-`/fpgas/tt.html` route.
+including its 256 KiB cap and 16-file eviction. The legacy `/fpgas/tt.html`
+route is in scope only if that site links to it; on welland and ps1 nothing
+does, and an address no user can reach is not worth a test.
 
 ## Known production faults this suite reports
 
