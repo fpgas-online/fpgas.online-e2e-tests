@@ -98,6 +98,7 @@ including its 256 KiB cap and 16-file eviction; and the legacy
 | Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
 | `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
 | `/fpgas/tt.html` returns 404 because the view hardcodes port 21 | both | 2026-09-12 |
+| **`/live/pi3.m3u8` returns HTTP 404**, so pi3's camera shows nothing. The player reports `DEMUXER_ERROR_COULD_NOT_OPEN ... MediaSource endOfStream before demuxer initialization completes`. The other playlists checked (pi2, pi7, pi9) serve 200 with six segments each, and the segments themselves fetch. | ps1 | 2026-09-13 |
 | **The index names no FPGA type**, so a user cannot tell what hardware a board has before choosing it. welland prints `Digilent Arty A7-35T`; ps1 prints nothing. | ps1 | 2026-09-12 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
@@ -114,3 +115,23 @@ which are broken on welland.
 
 The suite fails loudly on any of these rather than skipping them. A suite that
 quietly tolerated them would stop being evidence that the service works.
+
+## Open question: players that never start
+
+`test_bitstream_upload` now proves the whole upload path -- the file lands on
+the Pi at the right size and `openFPGALoader` exits 0 -- and then fails
+waiting for the camera to come back, with the player at `readyState 0`,
+`paused`, no error, `src` still the `.m3u8`.
+
+It is not the server: those playlists return 200 with a full segment window,
+and the segments fetch as `video/mp2t`. It is not the timeout either: a
+healthy player reaches `readyState 4` in about **2 seconds**, so the 60s
+budget is generous.
+
+What it looks like is that the player often fails to start after several
+navigations in one tab -- the failures cluster on boards visited later in a
+session, and the same board that will not start can play immediately in a
+fresh browser. Whether a real user hits this (a black player on a working
+camera) or whether it is peculiar to the automation context is the next thing
+to establish: capture video.js's own logs for a run that fails, rather than
+guessing from the media element's state.
