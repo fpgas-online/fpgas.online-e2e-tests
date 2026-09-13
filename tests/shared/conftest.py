@@ -94,9 +94,10 @@ def board_page(browser, browser_context_args, page, site, seed, on_dead, evidenc
         # decoding; a single sample taken the moment the terminal connects
         # catches readyState 0 every time and calls a healthy board dead.
         try:
-            return True, f"the camera feed is live ({session.camera.wait_until_live(timeout=45)})"
-        except TimeoutError as exc:
-            return False, f"the camera feed never went live ({exc})"
+            live, detail = session.camera.check_live_with_recovery(timeout=45)
+            return live, (
+                f"the camera feed is live ({detail})" if live else f"the camera feed never went live ({detail})"
+            )
         except Exception as exc:  # noqa: BLE001
             return False, f"the camera could not be read ({exc})"
 
