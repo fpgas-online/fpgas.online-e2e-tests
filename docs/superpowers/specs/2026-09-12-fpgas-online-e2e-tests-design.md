@@ -179,7 +179,11 @@ Two things checked and found *not* to be broken, recorded so nobody
 re-investigates: the VLC URL the page prints (`/live/pi16.m3u8`) and the
 stream the player uses (`/live/pi-sw2-p16.m3u8`) both return live, advancing
 playlists; they are aliases. `/fpgas/tt.html` returns 404 on both sites,
-because the view hardcodes port 21, but nothing links to it.
+because the view hardcodes port 21, but no page on either site links to it --
+checked against the live pages and the site repo, where the only references
+are the urlconf, the view and the template's own "edit this page" link. A
+user cannot reach it, so it is not a user-facing fault and the suite does not
+assert on it.
 
 ## The evidence model
 
@@ -511,8 +515,10 @@ Its own suite against `tinytapeout.fpgas.online`: catalogue cards and
 live/coming-soon states; the status pill; `Power-cycle board`; `Reset video`;
 the Commander embed's serial terminal over the RP2040 WebSocket bridge; the
 design gallery loading from the Pi daemon; Run/enable with a `clock_hz`; the
-`.bin` upload form including its 256 KiB cap and 16-file eviction; and the
-legacy `/fpgas/tt.html` route, which currently 404s on both sites.
+`.bin` upload form including its 256 KiB cap and 16-file eviction. The legacy
+`/fpgas/tt.html` route is in scope only if the Tiny Tapeout site links to it;
+on welland and ps1 nothing does, and an address no user can reach is not
+worth a test.
 
 ## Repository setup
 

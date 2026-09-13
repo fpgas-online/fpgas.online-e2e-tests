@@ -52,6 +52,19 @@ def decode_wssh_frames(frames: list[bytes | str]) -> str:
     return "".join(f.decode("utf-8", "replace") if isinstance(f, bytes) else f for f in frames)
 
 
+# xterm draws the cursor as a filled block, which tesseract reads as "[]" (or
+# a stray bracket) sitting immediately after the prompt. Captured from ps1
+# pi7 on 2026-09-13: "07:38:03 pi@pi7:~ $ []". Left in place it defeats any
+# end-of-line anchor, so the suite reports a terminal it can plainly see as
+# dead.
+_CURSOR = re.compile(r"[\[\]|_]+[ \t]*$", re.MULTILINE)
+
+
+def without_cursor(text: str) -> str:
+    """Drop the rendered cursor from the end of each line of OCR'd screen text."""
+    return _CURSOR.sub("", text)
+
+
 def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
     """Has the shell printed a prompt anywhere in this output?
 
@@ -122,6 +135,7 @@ class WebTerminal:
         self.frame_selector = frame_selector
         self.prompt = prompt
         self._frames: list[bytes | str] = []
+        self._last_screen = ""
 
     # -- lifecycle --
 
@@ -138,54 +152,122 @@ class WebTerminal:
         """Forget buffered output -- e.g. after navigating away and back."""
         self._frames.clear()
 
-    def wait_for_prompt(self, timeout: float = 60.0, nudge_after: float = 6.0, nudge_every: float = 10.0) -> None:
-        """Block until the shell shows a prompt, pressing Enter if it stays quiet.
+    def wait_for_prompt(self, timeout: float = 60.0, look_every: float = 3.0) -> None:
+        """Block until a prompt is on screen.
 
-        A shell already sitting at a prompt has nothing left to say. After
-        reset(), or after navigating back to the page, the prompt was printed
-        before this buffer started and the only new bytes are tmux repainting
-        its status bar -- so waiting on the stream alone waits forever for
-        something that already happened, while the screen plainly shows a
-        prompt. Pressing Enter is what a person does when they are not sure a
-        terminal is alive; it makes the shell print a fresh prompt, and costs
-        one blank line in the shared tmux session.
+        Two ways of telling, because neither is sufficient alone. The
+        WebSocket is cheap and exact but is transport, not screen. The screen
+        is what a person judges by -- and it is the only one that can see a
+        prompt printed before this buffer started, which is the case after a
+        reset() or after navigating back to the page, when the only new bytes
+        are tmux repainting its status bar.
 
-        The grace period keeps the nudge out of the way of a normal login,
-        which reaches its first prompt in about 5 seconds.
+        Deliberately no keystrokes. Asking an idle shell to print a fresh
+        prompt by pressing Enter works, but this is a shared tmux session: if
+        another person has a half-typed command on the line, that Enter runs
+        it. Looking costs nothing and risks nothing.
         """
         deadline = time.monotonic() + timeout
-        next_nudge = time.monotonic() + nudge_after
+        next_look = time.monotonic()
         while time.monotonic() < deadline:
             if at_a_prompt(decode_wssh_frames(self._frames), self.prompt):
                 return
-            if time.monotonic() >= next_nudge:
-                self._press_enter()
-                next_nudge = time.monotonic() + nudge_every
+            if time.monotonic() >= next_look:
+                if self._screen_shows_prompt():
+                    return
+                next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
-        raise TimeoutError(f"no shell prompt within {timeout}s; saw {decode_wssh_frames(self._frames)!r}")
+        raise TimeoutError(
+            f"no shell prompt within {timeout}s; the screen reads {self._last_screen!r} "
+            f"and the socket sent {decode_wssh_frames(self._frames)!r}"
+        )
 
-    def _press_enter(self) -> None:
-        """Ask an idle shell for a fresh prompt.
-
-        Never fatal and never slow: a terminal that is still connecting has
-        nothing to click, and that is a reason to keep waiting rather than a
-        different error to report. The short click timeout matters --
-        Playwright's default is 30s, which would swallow the caller's budget.
-        """
+    def _screen_shows_prompt(self) -> bool:
+        """Is there a prompt on the terminal as rendered? What a person checks."""
         try:
-            frame = self.page.frame_locator(self.frame_selector)
-            frame.locator(".xterm-screen").click(timeout=2000)
-            self.page.keyboard.press("Enter")
-        except Exception:  # noqa: BLE001 - any failure here just means "not yet"
-            pass
+            self._last_screen = self._ocr_visible()
+        except Exception:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
+            return False
+        return at_a_prompt(without_cursor(self._last_screen), self.prompt)
 
-    def reconnect(self) -> None:
-        """Click the page's own 'reset ssh' button, as a person would."""
-        self._frames.clear()
-        self.page.click("#wssh-connect")
-        self.wait_for_prompt()
+    def wait_until_usable(self, timeout: float = 300.0, settle: float = 5.0) -> None:
+        """Keep reconnecting until the terminal both comes back and stays up.
+
+        Reaching a prompt is not enough after a reboot. sshd accepts early in
+        boot, before the login wrapper can attach to the shared tmux session,
+        so WebSSH connects, draws a prompt, and then the channel closes --
+        leaving its login form and "chan closed" on screen. A person tries
+        again rather than concluding the board is broken.
+
+        A trivial command is the proof: it round-trips only if the channel is
+        still open, and it leaves nothing behind in a session other people
+        share.
+        """
+        deadline = time.monotonic() + timeout
+        last = "never tried"
+        while True:
+            remaining = deadline - time.monotonic()
+            try:
+                self.reconnect(timeout=max(10.0, min(120.0, remaining)))
+                self.run("true", timeout=20.0)
+                return
+            except Exception as exc:  # noqa: BLE001 - a session that died while booting
+                last = f"{type(exc).__name__}: {exc}"
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"the terminal never became usable within {timeout}s ({last})")
+            self.page.wait_for_timeout(int(settle * 1000))
 
     # -- interaction --
+
+    def reconnect(self, timeout: float = 300.0, attempt: float = 30.0) -> None:
+        """Click the page's own 'reset ssh' button until the terminal comes back.
+
+        One click is not enough after a power cycle. The Pi takes minutes to
+        boot, and WebSSH falls back to its blank login form -- "Hostname Port
+        Username Password ... Connect" -- whenever auto-connect fails, and
+        then sits there. That form means "not yet", not "broken": on a healthy
+        board the same click reconnects immediately. A person waits a little
+        and clicks reset ssh again, which is what this does, until the
+        terminal is really back or the deadline passes.
+        """
+        deadline = time.monotonic() + timeout
+        last = ""
+        while True:
+            self._frames.clear()
+            self._last_screen = ""
+            self.page.click("#wssh-connect")
+            remaining = deadline - time.monotonic()
+            try:
+                self.wait_for_terminal(timeout=max(1.0, min(attempt, remaining)))
+                break
+            except TimeoutError as exc:
+                last = str(exc)
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"the terminal never came back within {timeout}s of clicking 'reset ssh' ({last})"
+                    ) from exc
+                self.page.wait_for_timeout(5000)
+        self.wait_for_prompt(timeout=max(10.0, deadline - time.monotonic()))
+
+    def wait_for_terminal(self, timeout: float = 60.0) -> None:
+        """Wait for the terminal surface itself to be on the page.
+
+        Clicking "reset ssh" tears the iframe down and builds it again, so for
+        a while there is no xterm to read: a person waits for the black
+        rectangle to come back before typing into it. Without this the next
+        command raced the rebuild and died inside the clipboard read, where
+        the failure looked like a broken terminal rather than an early one.
+        """
+        try:
+            self.page.frame_locator(self.frame_selector).locator(".xterm-screen").wait_for(
+                state="visible", timeout=timeout * 1000
+            )
+        except Exception as exc:
+            # Quote what the iframe is showing. WebSSH puts "Authentication
+            # failed." on screen when it cannot log in, which is the whole
+            # diagnosis and is otherwise thrown away.
+            said = self.page.frame_locator(self.frame_selector).locator("body").inner_text(timeout=5000)
+            raise TimeoutError(f"no terminal within {timeout}s; the iframe reads {said.strip()[:200]!r}") from exc
 
     def _focus(self):
         frame = self.page.frame_locator(self.frame_selector)
@@ -194,6 +276,7 @@ class WebTerminal:
 
     def run(self, command: str, timeout: float = 30.0, settle: float = 1.5) -> TerminalOutput:
         """Type a command, wait for the prompt, and read the output three ways."""
+        self.wait_for_terminal()
         self._focus()
         mark = len(self._frames)
         self.page.keyboard.type(command)
@@ -228,10 +311,25 @@ class WebTerminal:
 
     # -- the two screen-side readings --
 
-    def _copy_visible(self) -> str:
+    def _retrying(self, read):
+        """Read the terminal surface, once more if it was mid-rebuild.
+
+        WebSSH does not rebuild the iframe once and settle: after "reset ssh"
+        the xterm appears, the prompt arrives, and the surface can still be
+        torn down and built again underneath. A person waits for it to come
+        back and looks again rather than declaring the terminal broken.
+        """
+        try:
+            return read()
+        except Exception:  # noqa: BLE001 - a rebuild in progress, not a dead terminal
+            self.wait_for_terminal()
+            return read()
+
+
+    def _copy_visible(self, timeout: float = 10.0) -> str:
         """Select the terminal viewport and copy, the way a person grabs output."""
         frame = self.page.frame_locator(self.frame_selector)
-        box = frame.locator(".xterm-screen").bounding_box()
+        box = self._retrying(lambda: frame.locator(".xterm-screen").bounding_box(timeout=timeout * 1000))
         if box is None:
             return ""
         self.page.mouse.move(box["x"] + 2, box["y"] + 2)
@@ -241,6 +339,10 @@ class WebTerminal:
         self.page.keyboard.press("Control+Insert")
         return self.page.evaluate("navigator.clipboard.readText()")
 
-    def _ocr_visible(self) -> str:
-        shot = self.page.frame_locator(self.frame_selector).locator(".xterm-screen").screenshot()
+    def _ocr_visible(self, timeout: float = 5.0) -> str:
+        shot = self._retrying(
+            lambda: self.page.frame_locator(self.frame_selector)
+            .locator(".xterm-screen")
+            .screenshot(timeout=timeout * 1000)
+        )
         return ocr.read_text(Image.open(io.BytesIO(shot)), psm=6)

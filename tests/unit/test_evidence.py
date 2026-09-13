@@ -16,12 +16,13 @@ def test_a_true_ground_truth_is_recorded_and_satisfies_the_requirement():
     assert log.has_ground_truth is True
 
 
-def test_a_false_claim_raises_with_the_description_and_detail():
+def test_a_false_claim_is_recorded_with_its_description_and_detail():
+    """It is reported at the end of the test, not raised where it happened."""
     log = EvidenceLog()
-    with pytest.raises(AssertionError) as excinfo:
-        log.claim("status box says power off", False, detail="box was empty")
-    assert "status box says power off" in str(excinfo.value)
-    assert "box was empty" in str(excinfo.value)
+    log.claim("status box says power off", False, detail="box was empty")
+    failed = log.failures[0]
+    assert failed.description == "status box says power off"
+    assert failed.detail == "box was empty"
 
 
 def test_a_false_ground_truth_raises():
@@ -32,8 +33,7 @@ def test_a_false_ground_truth_raises():
 
 def test_a_failed_assertion_is_still_recorded_so_the_summary_shows_it():
     log = EvidenceLog()
-    with pytest.raises(AssertionError):
-        log.claim("nope", False)
+    log.claim("nope", False)
     assert len(log.entries) == 1
     assert log.entries[0].passed is False
 
@@ -45,3 +45,26 @@ def test_summary_lists_every_entry_with_its_kind():
     summary = log.summary()
     assert "[claim] a claim" in summary
     assert "[ground truth] a fact" in summary
+
+
+def test_a_failed_claim_does_not_stop_the_test():
+    """The test must still get as far as observing reality.
+
+    On welland the PoE status endpoint 500s, so the status box never reports
+    the switch. Raising there aborted the power-cycle test before it could
+    watch the board actually reboot -- reporting the first thing checked
+    instead of what the user experiences.
+    """
+    log = EvidenceLog()
+    log.claim("the status box reported the switch", False, detail="box was silent")
+    log.ground_truth("the board really rebooted", True)
+
+    assert [e.description for e in log.failures] == ["the status box reported the switch"]
+    assert log.has_ground_truth
+
+
+def test_a_failed_ground_truth_still_raises():
+    """Once an observation of reality has failed, carrying on proves nothing."""
+    log = EvidenceLog()
+    with pytest.raises(AssertionError):
+        log.ground_truth("the camera showed a live picture", False)

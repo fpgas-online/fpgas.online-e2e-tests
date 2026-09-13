@@ -48,12 +48,38 @@ def difference(a: Image.Image, b: Image.Image, region: tuple | None = None) -> f
     return float(np.abs(left - right).mean() / 255.0)
 
 
+def clock_advanced(first: str | None, second: str | None, gap: float) -> bool:
+    """True when the second clock reading is a plausible step on from the first.
+
+    Asking only whether the string changed lets OCR noise counterfeit a live
+    feed: the reader misreads a leading zero as a 2, so a frozen clock can
+    come back as '05:44:25' then '25:44:25' and pass. Requiring a step of
+    roughly the sampling gap means a reading has to be both self-consistent
+    and moving, which noise does not manage twice in a row.
+    """
+    if first is None or second is None:
+        return False
+    try:
+        start, end = _seconds(first), _seconds(second)
+    except ValueError:
+        return False
+    step = (end - start) % 86400  # a run can straddle midnight
+    return 1 <= step <= gap + 5
+
+
+def _seconds(clock: str) -> int:
+    hours, minutes, seconds = (int(part) for part in clock.split(":"))
+    return hours * 3600 + minutes * 60 + seconds
+
+
 class Camera:
     """The video element on a board page."""
 
-    def __init__(self, page, video_selector: str):
+    def __init__(self, page, video_selector: str, port: int | None = None):
         self.page = page
         self.selector = video_selector
+        # The page's own controls are addressed by switch port.
+        self.port = port if port is not None else video_selector.rsplit("player", 1)[-1]
 
     def video_selector(self) -> str:
         """Where the real <video> lives once video.js has had its way.
@@ -108,7 +134,7 @@ class Camera:
         first = self.clock()
         time.sleep(gap)
         second = self.clock()
-        live = first is not None and second is not None and first != second
+        live = clock_advanced(first, second, gap)
         detail = f"clock {first!r} -> {second!r}"
         if not live:
             detail = f"{detail}; player {self.player_state()}"
@@ -117,6 +143,74 @@ class Camera:
                 raw = ocr.read_clock_debug(crop_fraction(self.shot(), *CLOCK_REGION))
                 detail = f"{detail}; ocr read {raw!r}"
         return live, detail
+
+    def reset_player(self) -> None:
+        """Click the page's own "reset video player" button, as a person would."""
+        self.page.click(f"#refresh-video-player{self.port}")
+
+    def check_live_with_recovery(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Wait for the picture, and if it does not come back, do what a person does.
+
+        A stalled player looks exactly like a dead camera: a frozen frame,
+        readyState stuck below HAVE_FUTURE_DATA. The page offers a "reset
+        video player" button for precisely this, so a person clicks it rather
+        than concluding the board is broken. The detail says whether the
+        button was needed, because a picture that only returns after a manual
+        reset is itself a finding.
+        """
+        live, detail = self.check_live(timeout, gap=gap)
+        if live:
+            return True, detail
+        self.reset_player()
+        live, after = self.check_live(timeout, gap=gap)
+        return live, f"the picture needed the page's 'reset video player' button: {detail} -> {after}"
+
+    def check_stopped(self, timeout: float, gap: float = 3.0, consecutive: int = 3) -> tuple[bool, str]:
+        """Wait until the picture is genuinely stuck, not merely discontinuous.
+
+        "Not advancing plausibly" is too weak to mean "the board lost power".
+        A player that stalls and then seeks to the live edge reports a large
+        forward jump, and one recovering from a stall can even read backwards
+        -- measured on welland pi37: '15:59:01' -> '15:59:45' -> '15:59:13'.
+        None of that is a picture that stopped; it is a picture skipping
+        about, which is what a buffer does, not what a dead board does.
+
+        What a person sees when the power goes is a frame that sits there. So
+        require the same reading several times running -- or no readable clock
+        at all, which is the dark-player case -- before saying it stopped.
+        """
+        deadline = time.monotonic() + timeout
+        seen: list[str | None] = []
+        while time.monotonic() < deadline:
+            try:
+                seen.append(self.clock())
+            except Exception:  # noqa: BLE001 - an unreadable picture is a reading too
+                seen.append(None)
+            seen = seen[-consecutive:]
+            if len(seen) == consecutive and all(r == seen[0] for r in seen):
+                stuck = "no clock readable" if seen[0] is None else f"clock stuck at {seen[0]!r}"
+                return True, f"{stuck} across {consecutive} readings {gap}s apart"
+            time.sleep(gap)
+        return False, f"the picture never stuck within {timeout}s; last readings {seen}"
+
+    def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Did the picture come alive within the timeout? Reports, never raises.
+
+        For assertions, so the evidence log records what was actually seen.
+        wait_until_live raises instead, which suits a precondition but makes
+        any evidence entry built on it a constant.
+        """
+        try:
+            return True, self._wait(True, timeout, gap)
+        except TimeoutError as exc:
+            return False, str(exc)
+
+    def check_not_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Did the picture stop advancing within the timeout? Reports, never raises."""
+        try:
+            return True, self._wait(False, timeout, gap)
+        except TimeoutError as exc:
+            return False, str(exc)
 
     def wait_until_live(self, timeout: float, gap: float = 3.0) -> str:
         """Block until the feed is live. Returns the detail string; raises on timeout."""

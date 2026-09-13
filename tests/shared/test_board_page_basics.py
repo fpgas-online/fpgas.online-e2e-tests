@@ -14,11 +14,16 @@ def test_a_board_page_gives_you_a_live_camera_and_a_working_terminal(board_page,
     session = board_page()
     board, terminal, camera = session.board, session.terminal, session.camera
 
-    detail = camera.wait_until_live(timeout=60)
+    # Recovering, not just waiting: a stuck player never starts however long
+    # you wait, and calls a healthy camera dead about a quarter of the time.
+    # The page offers "reset video player" for exactly that, so click it.
+    live, detail = camera.check_live_with_recovery(timeout=60)
     evidence.ground_truth(
         f"{board.hostname}'s camera is showing a live picture",
-        True,
-        detail=f"{detail}; player {camera.player_state()}",
+        live,
+        # player_state() is DOM internals, which no user sees. It belongs in
+        # the detail of a failure, not in the record of what proved a pass.
+        detail=detail if live else f"{detail}; player {camera.player_state()}",
     )
 
     # The terminal is a canvas, so this also proves all three readings agree:
