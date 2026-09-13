@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11+ with `uv`; pytest + `pytest-playwright`; Playwright driving its own chromium, launched with `--autoplay-policy=no-user-gesture-required`; `tesseract-ocr` for OCR; Pillow + NumPy for image comparison; `paramiko` for the one direct-ssh test; `beautifulsoup4` for HTML parsing; `ruff` for lint.
 
-**Spec:** `docs/specs/2026-09-12-fpgas-online-e2e-tests-design.md` in this repository. Its "Background: what the UI actually is", "The evidence model" and "Roadmap" sections are normative; this plan does not repeat them in full.
+**Spec:** `docs/superpowers/specs/2026-09-12-fpgas-online-e2e-tests-design.md` in this repository. Its "Background: what the UI actually is", "The evidence model" and "Roadmap" sections are normative; this plan does not repeat them in full.
 
 ## Global Constraints
 
@@ -2299,7 +2299,7 @@ uploaded and contains screenshots.
 - [ ] **Step 1: Write `docs/ROADMAP.md`**
 
 Copy the "Roadmap" section of
-`docs/specs/2026-09-12-fpgas-online-e2e-tests-design.md` verbatim (Phase 1
+`docs/superpowers/specs/2026-09-12-fpgas-online-e2e-tests-design.md` verbatim (Phase 1
 table, Phase 1b, Phase 2, Phase 3), under a heading that says which tests
 already exist:
 
