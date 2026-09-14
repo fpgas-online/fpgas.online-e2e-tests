@@ -98,15 +98,18 @@ def browser_context_args(browser_context_args):
 
 
 @pytest.fixture(scope="session")
-def browser_identity(browser) -> str:
+def browser_identity(browser, site) -> str:
     """Refuse to test the site with anything but the browser a user has.
 
-    What the page sees is what is checked: the brands the browser reports to
-    the site (Google Chrome, not merely Chromium) and a user agent that is
-    not the headless variant. Printed so every run's log says what ran.
+    What the site sees is what is checked: the brands the browser reports to
+    it (Google Chrome, not merely Chromium) and a user agent that is not the
+    headless variant. Read on the site's own index page, because the brands
+    are only exposed to a secure context -- a blank page reports none.
+    Printed so every run's log says what ran.
     """
     page = browser.new_page()
     try:
+        page.goto(site.index_url, wait_until="domcontentloaded")
         identity = page.evaluate(
             """() => ({
                 brands: (navigator.userAgentData ? navigator.userAgentData.brands : []).map(b => b.brand),
