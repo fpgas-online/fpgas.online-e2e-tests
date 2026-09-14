@@ -286,3 +286,18 @@ def test_a_needle_that_only_sits_in_the_prompt_is_not_shown():
 
 def test_output_lines_are_the_websocket_reading_line_by_line():
     assert TerminalOutput("pi7\r\n", "pi7", "pi7").lines() == ["pi7"]
+
+
+def test_a_half_typed_command_on_the_prompt_line_is_named():
+    """Seen on ps1 pi7, 2026-09-14: a shared session with someone's command waiting."""
+    from e2e.terminal import describe_busy_shell
+
+    screen = "03:24:27 pi@pi7:~ $ echo $?\n0\n03:26:04 pi@pi7:~/Demos/counter_test $ sudo apt install pipx\n"
+    assert "'sudo apt install pipx'" in describe_busy_shell(screen)
+
+
+def test_a_free_prompt_is_not_described_as_busy():
+    from e2e.terminal import describe_busy_shell
+
+    assert describe_busy_shell("03:26:04 pi@pi7:~ $ []\n") == ""
+    assert describe_busy_shell("") == ""

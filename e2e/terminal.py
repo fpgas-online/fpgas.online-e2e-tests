@@ -66,6 +66,27 @@ def without_cursor(text: str) -> str:
     return _CURSOR.sub("", text)
 
 
+_PROMPT_THEN_TEXT = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#][ \t]+(?P<typed>\S[^\r\n]*)$")
+
+
+def describe_busy_shell(screen: str) -> str:
+    """Why there is no prompt, when the last prompt on screen has text after it.
+
+    In a shared tmux session that is what another person's half-typed
+    command looks like, or a command still running. Either way the terminal
+    is not free, and a person who sees "$ sudo apt install pipx" sitting
+    there knows exactly why. The error should say so instead of dumping
+    escape codes.
+    """
+    lines = [line for line in without_cursor(ocr.strip_ansi(screen)).splitlines() if line.strip()]
+    if not lines:
+        return ""
+    match = _PROMPT_THEN_TEXT.search(lines[-1].strip())
+    if match is None:
+        return ""
+    return f"the last prompt has a command after it that has not returned: {match.group('typed')!r}; "
+
+
 def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
     """Has the shell printed a prompt anywhere in this output?
 
@@ -213,8 +234,9 @@ class WebTerminal:
                 next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
         raise TimeoutError(
-            f"no shell prompt within {timeout}s; the screen reads {self._last_screen!r} "
-            f"and the socket sent {decode_wssh_frames(self._frames)!r}"
+            f"no shell prompt within {timeout}s; {describe_busy_shell(self._last_screen)}"
+            f"the screen reads {ocr.normalise(self._last_screen)[-600:]!r} "
+            f"and the socket sent {ocr.normalise(decode_wssh_frames(self._frames))[-600:]!r}"
         )
 
     def _screen_shows_prompt(self) -> bool:
