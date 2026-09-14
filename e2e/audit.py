@@ -30,9 +30,12 @@ class Check:
     detail: str
     note: str = ""  # a word for the cell itself: "reset needed", "on", "off"
     seconds: float = 0.0  # how long a person waited for this answer
+    skipped: bool = False  # not tried this run; neither a pass nor a failure
 
     @property
     def cell(self) -> str:
+        if self.skipped:
+            return "skipped"
         word = "ok" if self.passed else "FAIL"
         return f"{word} ({self.note})" if self.note else word
 
@@ -53,7 +56,7 @@ class BoardAudit:
 
     @property
     def failures(self) -> list[Check]:
-        return [c for c in self.checks if not c.passed]
+        return [c for c in self.checks if not c.passed and not c.skipped]
 
 
 def run_journey(
@@ -103,12 +106,16 @@ def run_journey(
     return Check(name=name, passed=passed, detail=detail, note=note, seconds=time.monotonic() - started)
 
 
-def audit_board(session, known_hosts) -> BoardAudit:
+DISRUPTIVE = ("upload", "power cycle")
+
+
+def audit_board(session, known_hosts, quick: bool = False) -> BoardAudit:
     """Every journey, in the order a person would try them, on one open board.
 
     The disruptive ones come last -- the upload reprograms the FPGA and Reset
     reboots the Pi -- so that the readings before them describe the board as
-    a user finds it.
+    a user finds it. `quick` leaves those two out, marked skipped, for a
+    look at the fleet that touches nothing.
     """
     from e2e import journeys  # noqa: PLC0415 - journeys imports the session types this module renders
 
@@ -123,6 +130,9 @@ def audit_board(session, known_hosts) -> BoardAudit:
         ("power cycle", lambda log: journeys.reset_power_cycles_the_board(session, log), None, True),
     ]
     for name, journey, note_from, needs_ground_truth in steps:
+        if quick and name in DISRUPTIVE:
+            row.checks.append(Check(name=name, passed=False, detail="not tried (--quick)", skipped=True))
+            continue
         row.checks.append(run_journey(name, journey, note_from=note_from, needs_ground_truth=needs_ground_truth))
     return row
 
@@ -156,7 +166,7 @@ def render_text(site: str, rows: list[BoardAudit], when: dt.datetime | None = No
         lines.append("why:")
         for hostname, check in failures:
             lines.append(f"  {hostname} {check.name} ({check.seconds:.0f}s): {check.detail}")
-    passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail]
+    passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail and not c.skipped]
     if passes:
         # What proved each pass, because a table of "ok" is a claim until it
         # says what was seen.
@@ -182,7 +192,7 @@ def render_markdown(site: str, rows: list[BoardAudit], when: dt.datetime | None 
         lines.append("")
         for hostname, check in failures:
             lines.append(f"- **{hostname} {check.name}** ({check.seconds:.0f}s): {check.detail}")
-    passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail]
+    passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail and not c.skipped]
     if passes:
         lines.append("")
         lines.append("Seen:")

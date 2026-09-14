@@ -151,3 +151,10 @@ def test_the_report_says_what_proved_each_pass():
     assert "  pi7 camera (0s): camera fine" in text
     md = render_markdown("ps1", _rows(), when=WHEN)
     assert "- pi7 upload (0s): upload fine" in md
+
+
+def test_a_skipped_cell_is_neither_a_pass_nor_a_failure():
+    row = BoardAudit(PI7, [Check("camera", True, "fine"), Check("upload", False, "not tried", skipped=True)])
+    assert row.failures == []
+    assert row.check("upload").cell == "skipped"
+    assert "upload" not in render_text("ps1", [row], when=WHEN).split("seen:")[-1]

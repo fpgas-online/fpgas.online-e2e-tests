@@ -17,6 +17,11 @@ def pytest_addoption(parser):
     parser.addoption("--seed", type=int, default=None, help="replay a previous run's board choice")
     parser.addoption("--on-dead", default="fail", choices=[m.value for m in OnDead])
     parser.addoption(
+        "--quick",
+        action="store_true",
+        help="audit without the upload and power cycle, which change the board; those cells read 'skipped'",
+    )
+    parser.addoption(
         "--boards",
         default="",
         help="audit only these boards, by hostname or piNN (comma separated); for development runs",
@@ -40,6 +45,11 @@ def seed(pytestconfig) -> int:
 @pytest.fixture(scope="session")
 def on_dead(pytestconfig) -> OnDead:
     return OnDead(pytestconfig.getoption("--on-dead"))
+
+
+@pytest.fixture(scope="session")
+def quick(pytestconfig) -> bool:
+    return bool(pytestconfig.getoption("--quick"))
 
 
 @pytest.fixture(scope="session")

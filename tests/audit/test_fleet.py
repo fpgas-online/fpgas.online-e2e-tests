@@ -26,7 +26,7 @@ from e2e.site import parse_boards
 
 @pytest.mark.live
 def test_every_board_at_the_site(
-    browser, browser_context_args, browser_identity, page, site, boards_wanted, known_hosts, output_dir, evidence
+    browser, browser_context_args, browser_identity, page, site, boards_wanted, known_hosts, output_dir, evidence, quick
 ):
     page.goto(site.index_url, wait_until="domcontentloaded")
     boards = parse_boards(page.content())
@@ -44,7 +44,7 @@ def test_every_board_at_the_site(
     for board in boards:
         session = open_board(browser, browser_context_args, site, board)
         try:
-            row = audit_board(session, known_hosts)
+            row = audit_board(session, known_hosts, quick=quick)
         finally:
             try:
                 session.snapshot(output_dir / f"audit-{site.name}" / f"{board.hostname}.png")
