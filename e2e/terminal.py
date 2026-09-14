@@ -249,7 +249,7 @@ class WebTerminal:
         reading, because that is what the person sees.
         """
         try:
-            self._last_screen = self._ocr_visible(retry_wait=2.0)
+            self._last_screen = self._ocr_visible(timeout=1.0, retry_wait=1.0)
         except Exception as exc:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
             self._last_screen = f"(no terminal surface: {exc})"
             return False
