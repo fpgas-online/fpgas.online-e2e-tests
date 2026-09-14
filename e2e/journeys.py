@@ -215,3 +215,105 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
         after <= elapsed + 30,
         detail=f"uptime {after:.1f}s, {elapsed:.1f}s since the click",
     )
+
+
+# -- bitstream upload ---------------------------------------------------------
+
+BITSTREAM = Path(__file__).parents[1] / "fixtures" / "counter_test" / "top.bit"
+# Where the page's own scp instructions put files ("...:Uploads"), spelled out
+# because the shared tmux session is not necessarily at $HOME: the page's
+# "Blink LEDs" button leaves it in ~/Demos/counter_test.
+REMOTE = "~/Uploads/top.bit"
+
+# Fractions of the picture (below the clock overlay) whose pixels have to move
+# for the board to count as changed, and as still running. PROVISIONAL until a
+# run gets as far as programming a board: POST /pibup/upload returns 500 on
+# both sites, so no upload has yet been watched. Calibrate against real
+# before/after shots then.
+CHANGED = 0.002
+STILL_RUNNING = 0.002
+
+
+def file_is_fresh(text: str, window: int = 600) -> tuple[bool, str]:
+    """Was the file written within `window` seconds, by the Pi's own clock?
+
+    `text` is what `date +%s; stat -c %Y FILE` printed: the Pi's clock, then
+    the file's mtime, both epoch seconds from the same clock. Comparing the
+    mtime against this machine's clock instead would make the answer depend
+    on two clocks agreeing, which nothing here checks.
+    """
+    stamps = re.findall(r"^\s*(\d{9,11})\s*$", text, re.MULTILINE)
+    if len(stamps) < 2:
+        return False, f"could not read the Pi's clock and the file's mtime from {text!r}"
+    now, mtime = int(stamps[-2]), int(stamps[-1])
+    age = now - mtime
+    return 0 <= age <= window, f"the file is {age}s old by the Pi's own clock (now {now}, mtime {mtime})"
+
+
+def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> None:
+    """Can a person upload a bitstream through the form and see it running?
+
+    The claim is the success page. The ground truth is that the file really
+    landed on the Pi at the right size and just now, that openFPGALoader
+    really programmed the part, and that the LEDs visibly changed and are
+    moving.
+
+    Known limitation: counter_test/top.bit is the same bitstream the "Blink
+    LEDs" button loads, so the camera proves "the LEDs changed and are
+    counting" but not "this upload is what is running".
+    """
+    board, page, terminal, camera = session.board, session.page, session.terminal, session.camera
+
+    live, detail = camera.check_live_with_recovery(timeout=60)
+    evidence.ground_truth("the camera is live before the upload", live, detail=detail)
+    before = camera.shot()
+
+    page.set_input_files("#upform input[type=file]", str(BITSTREAM))
+    page.click("#upform input[type=submit]")
+    page.wait_for_load_state("domcontentloaded")
+
+    # Read the rendered text, not the HTML source, and name the board. The
+    # site runs with DEBUG=True, so a failed upload renders Django's technical
+    # traceback -- whose source listing contains "handle_uploaded_file". A
+    # check on the page source therefore passed on the very crash this
+    # exists to catch.
+    landed = page.inner_text("body")
+    evidence.claim(
+        "the upload form reports success",
+        "uploaded" in landed.lower() and f"pino={board.port}" in landed.replace(" ", ""),
+        detail=f"landed on {page.url} showing: {landed[:400]!r}",
+    )
+
+    page.go_back()
+    terminal.reset()
+    try:
+        terminal.wait_for_prompt()
+    except TimeoutError as exc:
+        evidence.ground_truth("the web terminal is back after returning to the page", False, detail=str(exc))
+
+    # The size alone does not prove THIS upload landed: the identical file
+    # from a previous run, or another user's, satisfies it just as well. A
+    # person checks the file is new, so ask when it was written too.
+    listing = terminal.run(f"ls -l {REMOTE}")
+    shown, detail = listing.shows(str(BITSTREAM.stat().st_size))
+    evidence.ground_truth("the bitstream really landed on the Pi at the right size", shown, detail=detail)
+
+    stamped = terminal.run(f"date +%s; stat -c %Y {REMOTE}")
+    fresh, detail = file_is_fresh(stamped.text)
+    evidence.ground_truth("the file on the Pi was written just now, not left over from before", fresh, detail=detail)
+
+    programming = terminal.run(f"openFPGALoader -b arty {REMOTE}", timeout=180)
+    status, detail = terminal.exit_status()
+    evidence.ground_truth(
+        "openFPGALoader programmed the FPGA",
+        status == 0,
+        detail=f"exit status {status} ({detail}); output: {programming.text[-400:]!r}",
+    )
+
+    # The feed runs about a minute behind, so keep watching rather than
+    # comparing one shot taken the moment programming finished.
+    changed, detail = camera.wait_for_change(before, threshold=CHANGED, timeout=120)
+    evidence.ground_truth("the board looks different from before the upload", changed, detail=detail)
+
+    counting, detail = camera.keeps_changing(threshold=STILL_RUNNING)
+    evidence.ground_truth("the design is visibly running, not frozen", counting, detail=detail)

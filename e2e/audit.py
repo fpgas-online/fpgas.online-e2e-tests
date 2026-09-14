@@ -17,7 +17,7 @@ from collections.abc import Callable
 from e2e.board import Board
 from e2e.evidence import EvidenceLog
 
-COLUMNS = ("page", "camera", "terminal", "poe status", "ssh", "power cycle")
+COLUMNS = ("page", "camera", "terminal", "poe status", "ssh", "upload", "power cycle")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -96,8 +96,9 @@ def run_journey(
 def audit_board(session, known_hosts) -> BoardAudit:
     """Every journey, in the order a person would try them, on one open board.
 
-    The disruptive one comes last so that the readings before it describe the
-    board as a user finds it, not as it is mid-reboot.
+    The disruptive ones come last -- the upload reprograms the FPGA and Reset
+    reboots the Pi -- so that the readings before them describe the board as
+    a user finds it.
     """
     from e2e import journeys  # noqa: PLC0415 - journeys imports the session types this module renders
 
@@ -108,6 +109,7 @@ def audit_board(session, known_hosts) -> BoardAudit:
         ("terminal", lambda log: journeys.terminal_reaches_the_board(session, log), None, True),
         ("poe status", lambda log: journeys.poe_status_is_reported(session, log), poe_note, False),
         ("ssh", lambda log: journeys.direct_ssh_works(session, log, known_hosts), None, True),
+        ("upload", lambda log: journeys.upload_programs_the_board(session, log), None, True),
         ("power cycle", lambda log: journeys.reset_power_cycles_the_board(session, log), None, True),
     ]
     for name, journey, note_from, needs_ground_truth in steps:

@@ -301,13 +301,19 @@ class WebTerminal:
             ocr_text=self._ocr_visible(),
         )
 
-    def exit_status(self) -> int:
-        """Ask the shell what the last command returned, the way the site's own demos do."""
+    def exit_status(self) -> tuple[int | None, str]:
+        """Ask the shell what the last command returned, the way the site's own demos do.
+
+        Read like everything else: the number has to be on screen too, not
+        only in the WebSocket bytes. None when no status could be read, with
+        the detail saying what was seen instead.
+        """
         out = self.run("echo $?")
         match = re.search(r"-?\d+", out.text)
         if match is None:
-            raise AssertionError(f"could not read an exit status from {out.text!r}")
-        return int(match.group())
+            return None, f"could not read an exit status from {out.text!r}"
+        shown, detail = out.shows(match.group())
+        return (int(match.group()) if shown else None), detail
 
     # -- the two screen-side readings --
 

@@ -48,6 +48,26 @@ def difference(a: Image.Image, b: Image.Image, region: tuple | None = None) -> f
     return float(np.abs(left - right).mean() / 255.0)
 
 
+def changed_fraction(a: Image.Image, b: Image.Image, region: tuple | None = None, tolerance: int = 40) -> float:
+    """The fraction of pixels that changed noticeably between two shots, 0.0 - 1.0.
+
+    A mean difference over the frame cannot see an LED: a few hundred bright
+    pixels among a million dark ones move the mean by nothing. Counting the
+    pixels that moved by more than a person would notice does see it, and
+    reads the same however small the LED is in the frame. `tolerance` is the
+    per-channel step that counts as a change; video compression noise sits
+    well below it.
+    """
+    if region is not None:
+        a, b = crop_fraction(a, *region), crop_fraction(b, *region)
+    if a.size != b.size:
+        b = b.resize(a.size)
+    left = np.asarray(a.convert("RGB"), dtype=np.int16)
+    right = np.asarray(b.convert("RGB"), dtype=np.int16)
+    moved = np.abs(left - right).max(axis=2) > tolerance
+    return float(moved.mean())
+
+
 def clock_advanced(first: str | None, second: str | None, gap: float) -> bool:
     """True when the second clock reading is a plausible step on from the first.
 
@@ -143,6 +163,34 @@ class Camera:
                 raw = ocr.read_clock_debug(crop_fraction(self.shot(), *CLOCK_REGION))
                 detail = f"{detail}; ocr read {raw!r}"
         return live, detail
+
+    def wait_for_change(
+        self, before: Image.Image, threshold: float, timeout: float, gap: float = 2.0, region: tuple = PICTURE_REGION
+    ) -> tuple[bool, str]:
+        """Watch until the picture differs from `before`, or give up.
+
+        The feed runs about a minute behind the board, so a shot taken the
+        moment the FPGA is programmed still shows the old design. A person
+        keeps looking at the camera until the LEDs change; so does this.
+        """
+        deadline = time.monotonic() + timeout
+        peak = 0.0
+        while time.monotonic() < deadline:
+            fraction = changed_fraction(before, self.shot(), region=region)
+            peak = max(peak, fraction)
+            if fraction > threshold:
+                return True, f"{fraction:.4%} of the picture changed (threshold {threshold:.2%})"
+            time.sleep(gap)
+        return False, f"at most {peak:.4%} of the picture changed within {timeout}s (threshold {threshold:.2%})"
+
+    def keeps_changing(
+        self, threshold: float, gap: float = 2.0, region: tuple = PICTURE_REGION
+    ) -> tuple[bool, str]:
+        """Do two shots `gap` seconds apart differ? A design that is running keeps the LEDs moving."""
+        first = self.shot()
+        time.sleep(gap)
+        fraction = changed_fraction(first, self.shot(), region=region)
+        return fraction > threshold, f"{fraction:.4%} of the picture changed across {gap}s (threshold {threshold:.2%})"
 
     def reset_player(self) -> None:
         """Click the page's own "reset video player" button, as a person would."""

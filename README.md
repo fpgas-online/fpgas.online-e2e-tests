@@ -50,9 +50,9 @@ visits every board the index lists and runs the same journeys on each,
 producing one row per board:
 
     ### ps1: 9 boards, audited 2026-09-14T04:10:22Z
-    board  page  camera            terminal  poe status  ssh   power cycle
-    pi2    ok    FAIL              FAIL      ok (on)     FAIL  FAIL
-    pi7    ok    ok (reset needed) ok        ok (on)     ok    ok
+    board  page  camera             terminal  poe status  ssh   upload  power cycle
+    pi2    ok    FAIL               FAIL      ok (on)     FAIL  FAIL    FAIL
+    pi7    ok    ok (reset needed)  ok        ok (on)     ok    FAIL    ok
     ...
 
     why:
