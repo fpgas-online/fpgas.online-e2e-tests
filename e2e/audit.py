@@ -74,8 +74,11 @@ def run_journey(
     result = None
     try:
         result = journey(log)
-    except AssertionError:
-        pass  # the failed ground truth is already in the log
+    except AssertionError as exc:
+        # A failed ground truth is already in the log. Any other assertion is
+        # not, and must not vanish.
+        if not log.failures:
+            crashed = f"AssertionError: {str(exc).splitlines()[0][:300]}"
     except Exception as exc:  # noqa: BLE001 - the cell must say what happened
         crashed = f"{type(exc).__name__}: {str(exc).splitlines()[0][:300]}"
     failed = [f"{e.description}: {e.detail}" if e.detail else e.description for e in log.failures]

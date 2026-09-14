@@ -34,3 +34,16 @@ def test_an_unreadable_listing_is_not_fresh():
     fresh, detail = file_is_fresh("stat: cannot statx '/home/pi/Uploads/top.bit': No such file or directory")
     assert not fresh
     assert "could not read" in detail
+
+
+def test_djangos_debug_page_for_the_upload_crash_is_not_a_success():
+    """Its visible text contains handle_uploaded_file and the request URL with pino=."""
+    from e2e.journeys import upload_succeeded
+
+    debug_page = (
+        "ValueError at /pibup/upload\nRequest URL: https://ps1.fpgas.online/pibup/upload?pino=7\n"
+        "Traceback ... def handle_uploaded_file(f, pino): ..."
+    )
+    assert not upload_succeeded(debug_page)
+    assert upload_succeeded("uploaded top.bit to pi7")
+    assert not upload_succeeded("Server Error (500)")

@@ -42,14 +42,18 @@ class StatusLog:
             self.page.wait_for_timeout(500)
         return False, f"{needle!r} never appeared after the click; the box added: {added.strip()!r}"
 
-    def poe_state(self) -> str:
+    def poe_state(self, since: str = "") -> str:
         """The last PoE state the box reported: "on", "off", or "" if it never said.
 
         The box words it "snmp: get power on" after "Check PoE" and "snmp:
         set power off" during a reset; the last word of the last such line
-        is what a person reads off it.
+        is what a person reads off it. With `since` -- the box's text before
+        a click -- only lines the click added are read, so a stale line from
+        earlier is not mistaken for an answer.
         """
-        states = _POWER_LINE.findall(self.text())
+        current = self.text()
+        added = current[len(since) :] if since and current.startswith(since) else current
+        states = _POWER_LINE.findall(added)
         return states[-1].lower() if states else ""
 
     def wait_for(self, needle: str, timeout: float = 60.0) -> tuple[bool, str]:

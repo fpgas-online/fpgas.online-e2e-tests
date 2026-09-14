@@ -213,7 +213,7 @@ class Camera:
         live, after = self.check_live(timeout, gap=gap)
         return live, f"the picture needed the page's 'reset video player' button: {detail} -> {after}"
 
-    def check_stopped(self, timeout: float, gap: float = 3.0, consecutive: int = 3) -> tuple[bool, str]:
+    def check_stopped(self, timeout: float, gap: float = 3.0, consecutive: int = 5) -> tuple[bool, str]:
         """Wait until the picture is genuinely stuck, not merely discontinuous.
 
         "Not advancing plausibly" is too weak to mean "the board lost power".
@@ -226,6 +226,8 @@ class Camera:
         What a person sees when the power goes is a frame that sits there. So
         require the same reading several times running -- or no readable clock
         at all, which is the dark-player case -- before saying it stopped.
+        Five readings three seconds apart: a player can stall for a few
+        seconds on a live feed without the board having gone anywhere.
         """
         deadline = time.monotonic() + timeout
         seen: list[str | None] = []

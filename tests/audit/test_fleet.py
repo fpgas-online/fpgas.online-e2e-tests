@@ -46,6 +46,10 @@ def test_every_board_at_the_site(
         try:
             row = audit_board(session, known_hosts)
         finally:
+            try:
+                session.snapshot(output_dir / f"audit-{site.name}" / f"{board.hostname}.png")
+            except Exception as exc:  # noqa: BLE001 - a page that is gone still has to be closed
+                print(f"[audit] no screenshot of {board.hostname}: {exc}")
             session.close()
         rows.append(row)
         cells = "  ".join(f"{c.name}={c.cell}" for c in row.checks)

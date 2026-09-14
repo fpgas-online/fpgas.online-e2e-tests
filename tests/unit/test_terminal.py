@@ -243,3 +243,46 @@ def test_wait_until_usable_tries_again_when_the_channel_closes_after_connecting(
     term.wait_until_usable(timeout=60.0, settle=0.01)
 
     assert tries == ["true"] * 3
+
+
+# The whole viewport as the clipboard and OCR readings see it: an earlier
+# prompt, an earlier command, and then the one just typed. Cutting at the
+# first echo would leave "pi7" from the prompts in the reading; cutting at the
+# last leaves only what `hostname` printed.
+VIEWPORT = (
+    "07:38:03 pi@pi7:~ $ uptime -p\n"
+    "up 3 days, 2 hours\n"
+    "07:38:10 pi@pi7:~ $ hostname\n"
+    "pi7\n"
+    "07:38:11 pi@pi7:~ $ "
+)
+
+
+def test_strip_prompt_and_echo_cuts_at_the_last_echo_of_the_command():
+    assert strip_prompt_and_echo(VIEWPORT, "hostname") == "pi7"
+
+
+def test_strip_prompt_and_echo_accepts_an_ocr_misread_of_the_echo():
+    misread = VIEWPORT.replace("$ hostname", "$ hostnane")
+    assert strip_prompt_and_echo(misread, "hostname") == "pi7"
+
+
+def test_strip_prompt_and_echo_does_not_take_a_short_word_as_the_echo():
+    """A two-letter command must match exactly; fuzzy matching would find it everywhere."""
+    text = "pi@pi7:~ $ ls\nfoo\npi@pi7:~ $ "
+    assert strip_prompt_and_echo(text, "ls") == "foo"
+
+
+def test_a_needle_that_only_sits_in_the_prompt_is_not_shown():
+    """The hostname is in every prompt. Sliced readings make that count for nothing."""
+    out = TerminalOutput(
+        websocket=strip_prompt_and_echo("pi@pi7:~ $ true\npi@pi7:~ $ ", "true"),
+        clipboard=strip_prompt_and_echo("pi@pi7:~ $ true\npi@pi7:~ $ ", "true"),
+        ocr_text=strip_prompt_and_echo("pi@pi7:~ $ true\npi@pi7:~ $ ", "true"),
+    )
+    shown, _ = out.shows("pi7")
+    assert not shown
+
+
+def test_output_lines_are_the_websocket_reading_line_by_line():
+    assert TerminalOutput("pi7\r\n", "pi7", "pi7").lines() == ["pi7"]

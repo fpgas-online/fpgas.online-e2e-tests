@@ -10,11 +10,17 @@ from e2e.site import parse_boards
 
 
 @pytest.fixture
-def board_page(browser, browser_context_args, page, site, seed, on_dead, evidence):
+def board_page(
+    request, browser, browser_context_args, browser_identity, page, site, seed, on_dead, evidence, output_dir
+):
     """Factory: board_page() -> BoardSession on a live, working board.
 
     Any board the index lists will do, and every one is assumed to be an Arty.
+    Every board page opened is screenshotted and closed when the test ends,
+    whatever happened: pytest-playwright only records its own context, and
+    every failure happens on ours.
     """
+    opened: list[BoardSession] = []
 
     def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
@@ -33,17 +39,26 @@ def board_page(browser, browser_context_args, page, site, seed, on_dead, evidenc
         problems = []
         for board in candidates:
             session = open_board(browser, browser_context_args, site, board)
+            opened.append(session)
             ok, why = _is_working(session)
             if ok:
                 print(f"[e2e] testing on {board.hostname} ({board.fpga_board})")
+                if problems:
+                    # --on-dead retry lets the test run on a working board so
+                    # that the deep check still happens; it does not make the
+                    # dead ones disappear. Recorded as a claim that failed,
+                    # so the ledger shows them and the run stays red.
+                    evidence.claim(
+                        "every board tried was working",
+                        False,
+                        detail="skipped: " + "; ".join(problems),
+                    )
                 return session
             problems.append(f"{board.hostname}: {why}")
-            session.close()
+            print(f"[e2e] {board.hostname} is not usable: {why}")
             if on_dead is OnDead.FAIL:
                 break
-        raise AssertionError(
-            "no usable board.\n  " + "\n  ".join(problems) + f"\n(--on-dead={on_dead.value})"
-        )
+        raise AssertionError("no usable board.\n  " + "\n  ".join(problems) + f"\n(--on-dead={on_dead.value})")
 
     def _is_working(session) -> tuple[bool, str]:
         """The glance a person gives a board before deciding to use it."""
@@ -63,4 +78,11 @@ def board_page(browser, browser_context_args, page, site, seed, on_dead, evidenc
         except Exception as exc:  # noqa: BLE001
             return False, f"the camera could not be read ({exc})"
 
-    return _open
+    yield _open
+
+    for session in opened:
+        try:
+            session.snapshot(output_dir / request.node.name / f"{session.board.hostname}.png")
+        except Exception as exc:  # noqa: BLE001 - a page that is gone still has to be closed
+            print(f"[e2e] no screenshot of {session.board.hostname}: {exc}")
+        session.close()

@@ -112,9 +112,10 @@ def log_in_with_the_printed_command(
 ) -> SshLogin:
     """Run the page's ssh command, log in with the banner's password, run `commands`.
 
-    `known_hosts` is a file for this run, so every run meets the host for the
-    first time and has to answer the "continue connecting?" question -- which
-    is what a new user sees. It is the one addition to the printed command.
+    Two things are added to the printed command, both to make this machine
+    look like a visitor's: VISITOR_OPTIONS (no keys), and `known_hosts` as a
+    file for this run, so every run meets the host for the first time and
+    has to answer the "continue connecting?" question, as a new user does.
     """
     argv = printed_command_argv(command)
     argv[1:1] = VISITOR_OPTIONS + ["-o", f"UserKnownHostsFile={known_hosts}"]

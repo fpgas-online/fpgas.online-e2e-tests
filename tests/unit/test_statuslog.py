@@ -35,3 +35,9 @@ def test_a_box_that_never_mentioned_power_has_no_state():
     """welland: the status endpoint 500s, so the box only ever says 'checking status'."""
     box = _box("00:34:05: socket connected\n00:34:05: checking status: 37\n00:34:11: socket closed.\n")
     assert box.poe_state() == ""
+
+
+def test_only_lines_the_click_added_answer_it():
+    before = "00:33:12: snmp: get power on\n"
+    assert _box(before).poe_state(since=before) == ""
+    assert _box(before + "00:33:20: snmp: get power off\n").poe_state(since=before) == "off"

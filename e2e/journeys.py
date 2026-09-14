@@ -34,13 +34,24 @@ BOOT_BUDGET = 300.0
 
 
 def page_names_the_board(session: BoardSession, evidence: EvidenceLog) -> None:
-    """The page that opened is the board's page: its heading says so."""
+    """The page that opened is the board's page, and it says what hardware it is.
+
+    A person choosing a board needs both: welland's heading reads "Accessing
+    pi-sw2-p37 -- Digilent Arty A7-35T"; a heading that stops at the hostname
+    leaves them to guess what they are about to program.
+    """
     board = session.board
     heading = session.page.locator("h1").first.inner_text(timeout=10_000)
     evidence.claim(
         f"the page heading names {board.hostname}",
         board.hostname in heading,
         detail=f"heading reads {heading!r}",
+    )
+    after_name = heading.split(board.hostname, 1)[-1].strip(" -\u2014\u2013:") if board.hostname in heading else ""
+    evidence.claim(
+        "the page says what FPGA board is fitted",
+        bool(after_name) or bool(board.fpga_board),
+        detail=f"heading reads {heading!r}; the index said {board.fpga_board!r}",
     )
 
 
@@ -70,10 +81,16 @@ def terminal_reaches_the_board(session: BoardSession, evidence: EvidenceLog, tim
         evidence.ground_truth("the web terminal reaches a shell prompt", False, detail=str(exc))
 
     # The terminal is a canvas, so this also proves all three readings agree:
-    # the WebSocket bytes, the clipboard copy, and OCR of the pixels.
+    # the WebSocket bytes, the clipboard copy, and OCR of the pixels. The
+    # name must be a line of its own in the output: tmux's status line also
+    # carries the hostname, and a repaint of it is not `hostname` answering.
     hostname = terminal.run("hostname")
     shown, detail = hostname.shows(board.hostname)
-    evidence.ground_truth("the web terminal reaches the board the page says it is", shown, detail=detail)
+    evidence.ground_truth(
+        "the web terminal reaches the board the page says it is",
+        shown and board.hostname in hostname.lines(),
+        detail=f"{detail}; output lines {hostname.lines()!r}",
+    )
 
     uptime = terminal.run("uptime -p")
     shown, detail = uptime.shows("up")
@@ -93,7 +110,9 @@ def poe_status_is_reported(session: BoardSession, evidence: EvidenceLog, timeout
     page.click(f"#status{board.port}")
     seen, detail = status.wait_for_new("power", baseline, timeout=timeout)
     evidence.claim("the status box reports the PoE state after 'Check PoE'", seen, detail=detail)
-    state = status.poe_state()
+    # Only what the click added counts: an old line from before the click is
+    # not an answer to it.
+    state = status.poe_state(since=baseline)
     if state == "off":
         live, picture = session.camera.check_live(timeout=15)
         evidence.claim(
@@ -200,20 +219,16 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
     terminal.wait_until_usable(timeout=300)
     after = _uptime_seconds(terminal, evidence, "after the reset")
 
-    evidence.ground_truth(
-        "the Pi's uptime went backwards, so it really rebooted",
-        after < before,
-        detail=f"before={before:.1f}s after={after:.1f}s",
-    )
     # The reasoning a person does: it cannot have been up for longer than the
-    # time since I pressed the button. A fixed ceiling instead fails a slow
-    # but perfectly good power cycle, because the waits above can legitimately
-    # take several minutes.
+    # time since I pressed the button. That is the whole test; "uptime went
+    # backwards" is not, because a board that was rebooted ten minutes ago
+    # and is rebooted again now has a larger uptime after than before, and
+    # a fixed ceiling fails a slow but perfectly good power cycle.
     elapsed = time.monotonic() - clicked_at
     evidence.ground_truth(
-        "the Pi booted since the button was pressed",
+        "the Pi booted after the button was pressed",
         after <= elapsed + 30,
-        detail=f"uptime {after:.1f}s, {elapsed:.1f}s since the click",
+        detail=f"uptime {after:.1f}s (was {before:.1f}s), {elapsed:.1f}s since the click",
     )
 
 
@@ -232,6 +247,15 @@ REMOTE = "~/Uploads/top.bit"
 # before/after shots then.
 CHANGED = 0.002
 STILL_RUNNING = 0.002
+
+
+_ERROR_PAGE = ("traceback", "server error", "exception", "not found", "forbidden")
+
+
+def upload_succeeded(page_text: str) -> bool:
+    """Does the page the form landed on report the upload, and nothing gone wrong?"""
+    text = page_text.lower()
+    return "uploaded" in text and not any(word in text for word in _ERROR_PAGE)
 
 
 def file_is_fresh(text: str, window: int = 600) -> tuple[bool, str]:
@@ -262,7 +286,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
     LEDs" button loads, so the camera proves "the LEDs changed and are
     counting" but not "this upload is what is running".
     """
-    board, page, terminal, camera = session.board, session.page, session.terminal, session.camera
+    page, terminal, camera = session.page, session.terminal, session.camera
 
     live, detail = camera.check_live_with_recovery(timeout=60)
     evidence.ground_truth("the camera is live before the upload", live, detail=detail)
@@ -270,21 +294,23 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
 
     page.set_input_files("#upform input[type=file]", str(BITSTREAM))
     page.click("#upform input[type=submit]")
-    page.wait_for_load_state("domcontentloaded")
-
-    # Read the rendered text, not the HTML source, and name the board. The
-    # site runs with DEBUG=True, so a failed upload renders Django's technical
-    # traceback -- whose source listing contains "handle_uploaded_file". A
-    # check on the page source therefore passed on the very crash this
-    # exists to catch.
-    landed = page.inner_text("body")
-    evidence.claim(
-        "the upload form reports success",
-        "uploaded" in landed.lower() and f"pino={board.port}" in landed.replace(" ", ""),
-        detail=f"landed on {page.url} showing: {landed[:400]!r}",
-    )
-
-    page.go_back()
+    try:
+        page.wait_for_load_state("domcontentloaded")
+        # Read the rendered text, not the HTML source. The site runs with
+        # DEBUG=True, so a failed upload renders Django's technical traceback,
+        # whose visible text contains both "handle_uploaded_file" and the
+        # request URL with pino= in it. Only a page that reports the upload
+        # and is not an error page counts.
+        landed = page.inner_text("body")
+        evidence.claim(
+            "the upload form reports success, not an error page",
+            upload_succeeded(landed),
+            detail=f"landed on {page.url} showing: {landed[:400]!r}",
+        )
+    finally:
+        # Whatever the form did, come back to the board page: everything after
+        # this, and every journey after this one, reads it.
+        page.go_back()
     terminal.reset()
     try:
         terminal.wait_for_prompt()
@@ -300,6 +326,10 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
 
     stamped = terminal.run(f"date +%s; stat -c %Y {REMOTE}")
     fresh, detail = file_is_fresh(stamped.text)
+    if fresh:
+        # The numbers came off the WebSocket; the mtime has to be on screen too.
+        fresh, shown = stamped.shows(detail.rsplit("mtime ", 1)[-1].rstrip(")"))
+        detail = f"{detail}; {shown}"
     evidence.ground_truth("the file on the Pi was written just now, not left over from before", fresh, detail=detail)
 
     programming = terminal.run(f"openFPGALoader -b arty {REMOTE}", timeout=180)
