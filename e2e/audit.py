@@ -156,6 +156,14 @@ def render_text(site: str, rows: list[BoardAudit], when: dt.datetime | None = No
         lines.append("why:")
         for hostname, check in failures:
             lines.append(f"  {hostname} {check.name} ({check.seconds:.0f}s): {check.detail}")
+    passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail]
+    if passes:
+        # What proved each pass, because a table of "ok" is a claim until it
+        # says what was seen.
+        lines.append("")
+        lines.append("seen:")
+        for hostname, check in passes:
+            lines.append(f"  {hostname} {check.name} ({check.seconds:.0f}s): {check.detail}")
     return "\n".join(lines)
 
 
@@ -170,6 +178,15 @@ def render_markdown(site: str, rows: list[BoardAudit], when: dt.datetime | None 
     failures = [(row.board.hostname, c) for row in rows for c in row.failures]
     if failures:
         lines.append("")
+        lines.append("Why:")
+        lines.append("")
         for hostname, check in failures:
             lines.append(f"- **{hostname} {check.name}** ({check.seconds:.0f}s): {check.detail}")
+    passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail]
+    if passes:
+        lines.append("")
+        lines.append("Seen:")
+        lines.append("")
+        for hostname, check in passes:
+            lines.append(f"- {hostname} {check.name} ({check.seconds:.0f}s): {check.detail}")
     return "\n".join(lines) + "\n"

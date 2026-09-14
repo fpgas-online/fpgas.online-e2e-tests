@@ -142,3 +142,11 @@ def test_a_cell_records_how_long_the_answer_took():
     assert check.seconds >= 0.05
     assert check.timed.startswith("ok ")
     assert check.timed.endswith("s")
+
+
+def test_the_report_says_what_proved_each_pass():
+    text = render_text("ps1", _rows(), when=WHEN)
+    assert "seen:" in text
+    assert "  pi7 camera (0s): camera fine" in text
+    md = render_markdown("ps1", _rows(), when=WHEN)
+    assert "- pi7 upload (0s): upload fine" in md
