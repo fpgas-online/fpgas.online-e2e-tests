@@ -241,12 +241,15 @@ BITSTREAM = Path(__file__).parents[1] / "fixtures" / "counter_test" / "top.bit"
 REMOTE = "~/Uploads/top.bit"
 
 # Fractions of the picture (below the clock overlay) whose pixels have to move
-# for the board to count as changed, and as still running. PROVISIONAL until a
-# run gets as far as programming a board: POST /pibup/upload returns 500 on
-# both sites, so no upload has yet been watched. Calibrate against real
-# before/after shots then.
-CHANGED = 0.002
-STILL_RUNNING = 0.002
+# for the board to count as changed, and as still running. Calibrated on ps1
+# pi7 on 2026-09-14 with the page's own "Blink LEDs" button, which loads this
+# same counter design: with the LEDs still, shots two seconds apart differed
+# in 0.0000% of pixels (one blip of 0.0006%); once the counter was running,
+# consecutive shots differed by 0.03% to 3%, though about one pair in ten
+# was identical, which is why keeps_changing looks at several pairs. The
+# change reached the picture about 40s after the click.
+CHANGED = 0.0002
+STILL_RUNNING = 0.0002
 
 
 _ERROR_PAGE = ("traceback", "server error", "exception", "not found", "forbidden")

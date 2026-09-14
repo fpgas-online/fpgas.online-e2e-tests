@@ -184,13 +184,27 @@ class Camera:
         return False, f"at most {peak:.4%} of the picture changed within {timeout}s (threshold {threshold:.2%})"
 
     def keeps_changing(
-        self, threshold: float, gap: float = 2.0, region: tuple = PICTURE_REGION
+        self, threshold: float, gap: float = 2.0, pairs: int = 5, region: tuple = PICTURE_REGION
     ) -> tuple[bool, str]:
-        """Do two shots `gap` seconds apart differ? A design that is running keeps the LEDs moving."""
-        first = self.shot()
-        time.sleep(gap)
-        fraction = changed_fraction(first, self.shot(), region=region)
-        return fraction > threshold, f"{fraction:.4%} of the picture changed across {gap}s (threshold {threshold:.2%})"
+        """Does the picture keep moving? A design that is running keeps the LEDs moving.
+
+        Several pairs of shots, not one: a counter's LEDs can land on the same
+        pattern in two shots two seconds apart (measured on ps1 pi7: about one
+        pair in ten was identical while the counter ran), and one still pair
+        is not a frozen design.
+        """
+        seen = []
+        previous = self.shot()
+        for _ in range(pairs):
+            time.sleep(gap)
+            current = self.shot()
+            seen.append(changed_fraction(previous, current, region=region))
+            previous = current
+            if seen[-1] > threshold:
+                break
+        moved = max(seen)
+        readings = ", ".join(f"{s:.4%}" for s in seen)
+        return moved > threshold, f"consecutive shots {gap}s apart differed by {readings} (threshold {threshold:.2%})"
 
     def reset_player(self) -> None:
         """Click the page's own "reset video player" button, as a person would."""

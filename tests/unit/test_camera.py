@@ -120,3 +120,14 @@ def test_check_stopped_fires_when_the_picture_goes_dark():
     stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
     assert stopped
     assert "no clock readable" in detail
+
+
+def test_changed_fraction_counts_pixels_not_brightness():
+    """A small LED in a big dark frame: the mean is nothing, the count is not."""
+    fraction = camera.changed_fraction(_with_led("black"), _with_led("red"))
+    assert abs(fraction - (111 * 26) / (320 * 200)) < 0.001
+
+
+def test_changed_fraction_ignores_compression_noise():
+    noisy = _solid((10, 10, 10))
+    assert camera.changed_fraction(_solid("black"), noisy) == 0.0
