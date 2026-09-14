@@ -96,45 +96,84 @@ does, and an address no user can reach is not worth a test.
 
 ## Known production faults this suite reports
 
+The state of both sites, as measured by the audit on 2026-09-14 with the
+same instrument on the same day. The full reports, with what was seen for
+every cell, are in [docs/audits/](audits/).
+
+### welland, 14 boards ([report](audits/2026-09-14-welland.md))
+
+| board | page | camera | terminal | poe status | ssh | upload | power cycle |
+|---|---|---|---|---|---|---|---|
+| pi-sw2-p16 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p29 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p33 | ok | FAIL | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p34 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p35 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p36 | ok | ok (reset needed) | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p37 | ok | FAIL | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p38 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p42 | ok | ok | ok | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p43 | ok | FAIL | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p44 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p46 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p47 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+| pi-sw2-p48 | ok | ok | FAIL | FAIL (not shown) | FAIL | FAIL | FAIL |
+
+### ps1, 9 boards ([report](audits/2026-09-14-ps1.md); [pi9 with evidence](audits/2026-09-14-ps1-pi9.md))
+
+| board | page | camera | terminal | poe status | ssh | upload | power cycle |
+|---|---|---|---|---|---|---|---|
+| pi2 | FAIL | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |
+| pi3 | FAIL | FAIL | ok | ok (on) | ok | FAIL | FAIL |
+| pi5 | FAIL | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |
+| pi7 | FAIL | ok | FAIL | ok (on) | FAIL | FAIL | FAIL |
+| pi9 | FAIL | ok | ok | ok (on) | ok | ok | ok |
+| pi11 | FAIL | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |
+| pi13 | FAIL | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |
+| pi21 | FAIL | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |
+| pi23 | FAIL | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |
+
+**ps1 pi9 is the one board on either site where everything a user can do
+works**, and it is the control for every negative result above: the same
+code, on the same day, uploaded a bitstream through the form (landed on
+`/pibup/success?pino=9`, the file 8s old by the Pi's own clock,
+`openFPGALoader` exit 0 on screen, 2% of the picture changed and kept
+changing), and pressed Reset (the status box said `set power off`, the
+picture stuck at `05:02:57` for five readings, came back, and the Pi's
+uptime was 2004s before and less than the wait after).
+
+### The faults, by site
+
 | Fault | Where | Found |
 |---|---|---|
-| **The Reset button does not power cycle the board.** Clicked on pi16, p37 and p42: the camera kept streaming an advancing clock throughout -- 180s on two of them -- and the status box never showed a `set power` line. Controlled against ps1 pi7 with the same code and the same window in the same run, where the picture stuck at `16:03:12` and the box read `snmp: set power off` / `get power off`. `toggle()` and `status()` share `mk_params()` and the SNMP helpers, and `/snmp/status` returns 500 here, so both directions of PoE control are almost certainly failing the same way. The user is told nothing: `dcws.js` calls `fetch('/snmp/toggle').then((error) => console.log(error))`, which has no error branch at all, so a failed power cycle looks exactly like a successful one. | welland | 2026-09-14 |
-| **The web terminal cannot log in, on every board.** A full sweep of all 14 boards (pi-sw2-p16, p29, p33-p38, p42-p44, p46-p48) found not one that reached a shell prompt within 45s; all produced no terminal output whatsoever. In a browser the wssh iframe reports `Authentication failed.` then `socket closed.`, and no `/wssh/ws` WebSocket is opened at all. The same suite, same commit, same browser passes on ps1, so this is welland, not the client. It blocks every test that needs a shell -- which is most of them. | welland | 2026-09-12 |
-| **`POST /snmp/status` returns HTTP 500.** The board page calls it on load ("Check PoE"), so the status box never learns the PoE state. PS1 answers `{state: on}`. | welland | 2026-09-12 |
-| Per-board ssh forward ports unreachable from the internet (21622, 24222, ... time out on both IPv4 and IPv6, while :22 answers) | welland | 2026-09-12 |
-| `POST /pibup/upload` returns 500: `pibup/views.py` reads `form.cleaned_data['run']` but `pibup/forms.py` defines no `run` field | both | 2026-09-12 |
-| **Six of nine boards have no camera stream at all**: `/live/pi{3,5,11,13,21,23}.m3u8` all return HTTP 404, and the player reports `DEMUXER_ERROR_COULD_NOT_OPEN`. pi2, pi7 and pi9 serve 200 with a full segment window. | ps1 | 2026-09-13 |
-| **The camera player often fails to start**, leaving a black video on a camera that is streaming fine: `readyState 0`, `paused`, no error, `src` still the `.m3u8` rather than a MediaSource blob. Retrying four welland boards three times each gave 10 live out of 12, and a 14-board census misread 4 boards as dead, so the rate is roughly one load in four rather than the one in six first reported. The page's own "reset video player" button clears it, which is why every camera verdict in the suite now clicks it before calling a board dead. | both | 2026-09-13 |
-| **The index names no FPGA type**, so a user cannot tell what hardware a board has before choosing it. welland prints `Digilent Arty A7-35T`; ps1 prints nothing. | ps1 | 2026-09-12 |
+| **The Reset button does not power cycle the board.** Confirmed by the audit on pi-sw2-p42, the one welland board with a working terminal, so the uptime was read first: after the click the status box added only `socket connected / checking status: 42 / socket closed.` and never `set power`, and the picture kept advancing for 120s (`04:57:56` ... `04:58:09`). Same result on 2026-09-14 on p16, p37 and p42 by camera alone, controlled against ps1 pi7 in the same run. `toggle()` and `status()` share `mk_params()` and the SNMP helpers, and `/snmp/status` fails here too, so both directions of PoE control are almost certainly failing the same way. The user is told nothing: `dcws.js` calls `fetch('/snmp/toggle').then((error) => console.log(error))`, which has no error branch, so a failed power cycle looks exactly like a successful one. | welland | 2026-09-14 |
+| **The web terminal cannot log in on 13 of 14 boards.** The wssh iframe shows its blank login form and `Authentication failed.`; no `/wssh/ws` socket is opened. pi-sw2-p42 reached a prompt in 12s on 2026-09-14 04:00 UTC, so whatever differs on p42 is the fix. It blocks every test that needs a shell. | welland | 2026-09-12 |
+| **The upload form rejects a bitstream before Django sees it**: `413 Request Entity Too Large` from nginx for the 2.1 MB `counter_test/top.bit`, on all 14 boards. Nothing lands on the Pi (checked on p42, where the terminal works). ps1 accepts the same file. | welland | 2026-09-14 |
+| **`Check PoE` never answers.** The status box shows `checking status: N` and nothing else on all 14 boards, because `POST /snmp/status` returns HTTP 500. ps1 answers `snmp: get power on`. | welland | 2026-09-12 |
+| **The ssh command the page prints does not connect**: `ssh -p 2NN22 pi@welland.fpgas.online` prints nothing within 30s on all 14 boards (the per-board forward ports time out on IPv4 and IPv6, while :22 answers). | welland | 2026-09-12 |
+| **Seven of nine boards have no picture**: the player reports `DEMUXER_ERROR_COULD_NOT_OPEN` on pi2, pi3, pi5, pi11, pi13, pi21 and pi23, and the page's "reset video player" button does not help. Only pi7 and pi9 show an advancing clock. | ps1 | 2026-09-13 |
+| **Six of nine boards cannot be reached at all**: the web terminal's iframe says `Unable to connect to 10.21.0.1NN:22` and the printed ssh command gets `No route to host`, on pi2, pi5, pi11, pi13, pi21 and pi23. They are **powered but not responding**, not off: `Check PoE` says `power on` for every one of them. | ps1 | 2026-09-13 |
+| **The page does not say what FPGA is fitted.** Every heading reads only `Accessing piN`; welland's read `Accessing pi-sw2-p37 -- Digilent Arty A7-35T`. A user cannot tell what hardware they are about to program. | ps1 | 2026-09-12 |
+| **One visitor's half-typed command blocks every other visitor.** The web terminal and direct ssh both land in one shared tmux session per board. On 2026-09-14 pi7 had `sudo apt install pipx` sitting unrun on its prompt line for over an hour; every other visitor's terminal, and the printed ssh command, arrive at that line with no prompt to use. The suite refuses to press Enter into someone else's command, so pi7's terminal, upload and power-cycle cells all fail with that line quoted. | both (design) | 2026-09-14 |
+| **The camera player sometimes fails to start** on a camera that is streaming fine: black video, `readyState 0`, `paused`, no error. The page's own "reset video player" button clears it; the audit marks such cells `ok (reset needed)` (1 of 11 live welland cameras on 2026-09-14; earlier samples were nearer one load in four). | both | 2026-09-13 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
-**Five of PS1's nine boards are down entirely**, not merely missing a
-terminal as first reported. A census on 2026-09-13 found pi5, pi11, pi13,
-pi21 and pi23 failing at every layer at once: no shell prompt, no camera
-stream on the server (`/live/...m3u8` 404), and their ssh forward ports
-refusing or timing out. They are **powered but not responding**, not off:
-the status box reports `snmp: get power on` for all nine boards, including
-every dead one. Only pi7 and pi9 are fully healthy.
-
-pi2 degraded during 2026-09-13: its terminal and camera both worked at 05:35
-and its playlist served six segments; by 11:17 the playlist 404ed and by
-13:00 the terminal was dead too.
-
-A user landing on one of the five gets a page where nothing works, with no
-explanation.
-
-**welland is the mirror image.** A census the same day found all 14 boards
-listed with their FPGA types, all 14 camera playlists serving 200 with a full
-segment window, and the cameras showing an advancing clock -- while all 14
-web terminals failed to reach a prompt and all 14 per-board ssh ports timed
-out. The hardware is there and visible; nothing you can log into works.
-
-Note the reversal worth keeping in mind: **PS1 runs older code but is in better
-health** in the parts that matter for logging in. Its web terminal connects on at least some boards, its PoE status
-endpoint answers, and its ssh forward ports are reachable -- all three of
-which are broken on welland.
+Note the reversal worth keeping in mind: **ps1 runs older code but is in
+better health** in the parts that matter for using a board. Its web terminal
+connects, its PoE status answers, its ssh forward ports are reachable, its
+upload form accepts a bitstream, and its Reset button really cuts the power --
+all five broken on welland. What ps1 lacks is boards: seven of nine have no
+picture and six cannot be reached.
 
 ## Withdrawn
+
+**"`POST /pibup/upload` returns 500 on both sites"** (2026-09-12) came from
+a request made outside the browser, and it was wrong for ps1: on 2026-09-14
+the audit uploaded `counter_test/top.bit` through the form on pi9 and landed
+on the site's own success page, with the file on the Pi and the FPGA
+programmed. On welland the form fails, but at nginx with a 413, before
+Django is involved. The `cleaned_data['run']` reading of `pibup/views.py`
+stands as a reading of the source; it is not what a user meets.
 
 **"The browser must launch with `--autoplay-policy=no-user-gesture-required`
 or the player never starts"** was in the spec, the plan and the README. On
