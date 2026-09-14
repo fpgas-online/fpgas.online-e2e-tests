@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import random
+from pathlib import Path
 
 import pytest
 
@@ -11,18 +11,21 @@ from e2e.evidence import EvidenceLog
 from e2e.picker import OnDead
 from e2e.site import Site
 
-# The board pages autoplay a muted <video>. Chrome's autoplay policy blocks it
-# anyway under automation, leaving readyState 0 with no error -- which looks
-# exactly like a codec failure but is not. Measured 2026-09-12: with this flag
-# both Playwright's bundled chromium (151.0.7922.34) and Google Chrome decode
-# the production H.264/MPEG-TS feed to 1280x1080, readyState 4.
-BROWSER_ARGS = ["--autoplay-policy=no-user-gesture-required"]
-
 
 def pytest_addoption(parser):
     parser.addoption("--site", default="welland", help="welland or ps1")
     parser.addoption("--seed", type=int, default=None, help="replay a previous run's board choice")
     parser.addoption("--on-dead", default="fail", choices=[m.value for m in OnDead])
+    parser.addoption(
+        "--quick",
+        action="store_true",
+        help="audit without the upload and power cycle, which change the board; those cells read 'skipped'",
+    )
+    parser.addoption(
+        "--boards",
+        default="",
+        help="audit only these boards, by hostname or piNN (comma separated); for development runs",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -45,16 +48,53 @@ def on_dead(pytestconfig) -> OnDead:
 
 
 @pytest.fixture(scope="session")
+def quick(pytestconfig) -> bool:
+    return bool(pytestconfig.getoption("--quick"))
+
+
+@pytest.fixture(scope="session")
+def boards_wanted(pytestconfig) -> set[str]:
+    return {name.strip() for name in pytestconfig.getoption("--boards").split(",") if name.strip()}
+
+
+@pytest.fixture(scope="session")
+def output_dir(pytestconfig) -> Path:
+    """Where pytest-playwright puts screenshots and videos; reports go there too."""
+    path = Path(pytestconfig.getoption("--output"))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+@pytest.fixture(scope="session")
+def known_hosts(output_dir) -> Path:
+    """A known_hosts for this run only, so every run meets each board for the first time.
+
+    That is what a new visitor's ssh does, and it is what the site's
+    instructions are written for. Deleted afterwards so the next run is a
+    first connection too.
+    """
+    path = output_dir / "known_hosts"
+    path.unlink(missing_ok=True)
+    yield path
+    path.unlink(missing_ok=True)
+
+
+@pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
-    """Let the video actually play; optionally use a browser of your choosing."""
-    args = {
-        **browser_type_launch_args,
-        "args": [*browser_type_launch_args.get("args", []), *BROWSER_ARGS],
-    }
-    override = os.environ.get("CHROMIUM")
-    if override:
-        args["executable_path"] = override
-    return args
+    """The browser a person has: Google Chrome, with a window.
+
+    Not Playwright's bundled Chromium, and not headless. Measured on
+    2026-09-14: pytest-playwright's default is a headless Chromium build that
+    announces itself as "HeadlessChrome/151", which no user runs. The
+    --autoplay-policy flag the suite used to carry is not needed by any of
+    the four combinations (bundled or Chrome, headless or headed): the page's
+    <video> is muted and autoplays under the default policy, as it does for a
+    user. The flag was added on a measurement taken through the player-start
+    bug this suite later found, and it papered over nothing real.
+
+    Without a display, run under xvfb: `xvfb-run -a uv run pytest ...`.
+    """
+    return {**browser_type_launch_args, "channel": "chrome", "headless": False}
 
 
 @pytest.fixture(scope="session")
@@ -67,11 +107,37 @@ def browser_context_args(browser_context_args):
     }
 
 
+@pytest.fixture(scope="session")
+def browser_identity(browser, site) -> str:
+    """Refuse to test the site with anything but the browser a user has.
+
+    What the site sees is what is checked: the brands the browser reports to
+    it (Google Chrome, not merely Chromium) and a user agent that is not the
+    headless variant. Read on the site's own index page, because the brands
+    are only exposed to a secure context -- a blank page reports none.
+    Printed so every run's log says what ran.
+    """
+    page = browser.new_page()
+    try:
+        page.goto(site.index_url, wait_until="domcontentloaded")
+        identity = page.evaluate(
+            """() => ({
+                brands: (navigator.userAgentData ? navigator.userAgentData.brands : []).map(b => b.brand),
+                userAgent: navigator.userAgent,
+            })"""
+        )
+    finally:
+        page.close()
+    described = f"{'/'.join(identity['brands'])} {browser.version}; {identity['userAgent']}"
+    print(f"\n[e2e] browser: {described}")
+    assert "Google Chrome" in identity["brands"], f"not Google Chrome: {described}"
+    assert "HeadlessChrome" not in identity["userAgent"], f"headless, which no user runs: {described}"
+    return described
+
+
 @pytest.fixture
 def evidence() -> EvidenceLog:
     return EvidenceLog()
-
-
 
 
 @pytest.fixture(autouse=True)

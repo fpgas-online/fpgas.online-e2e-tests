@@ -1,12 +1,11 @@
-import time
-
-from tests.shared.test_bitstream_upload import _recently_written
+from e2e.journeys import file_is_fresh
 
 
-def test_a_file_written_just_now_counts_as_fresh():
-    text = f"2026-09-13T11:02\n{int(time.time())}\n"
-    fresh, detail = _recently_written(text)
+def test_a_file_written_just_now_by_the_pis_clock_counts_as_fresh():
+    """`date +%s; stat -c %Y` on the Pi: its clock, then the file's mtime."""
+    fresh, detail = file_is_fresh("1789358522\n1789358510\n")
     assert fresh, detail
+    assert "12s old" in detail
 
 
 def test_yesterdays_file_does_not_count():
@@ -15,13 +14,36 @@ def test_yesterdays_file_does_not_count():
     Only the timestamp distinguishes "this upload landed" from "a file with
     the right size is sitting there", which is what the test claims to prove.
     """
-    text = f"2026-09-13T11:02\n{int(time.time()) - 86400}\n"
-    fresh, detail = _recently_written(text)
+    fresh, detail = file_is_fresh(f"1789358522\n{1789358522 - 86400}\n")
     assert not fresh
-    assert "old" in detail
+    assert "86400s old" in detail
+
+
+def test_the_pis_clock_is_what_counts_not_this_machines():
+    """A Pi whose clock is a week behind ours still says its own file is new."""
+    fresh, _ = file_is_fresh("1700000000\n1699999990\n")
+    assert fresh
+
+
+def test_a_file_from_the_future_is_not_fresh_either():
+    fresh, _ = file_is_fresh("1789358522\n1789358600\n")
+    assert not fresh
 
 
 def test_an_unreadable_listing_is_not_fresh():
-    fresh, detail = _recently_written("ls: cannot access: No such file or directory")
+    fresh, detail = file_is_fresh("stat: cannot statx '/home/pi/Uploads/top.bit': No such file or directory")
     assert not fresh
-    assert "could not read an mtime" in detail
+    assert "could not read" in detail
+
+
+def test_djangos_debug_page_for_the_upload_crash_is_not_a_success():
+    """Its visible text contains handle_uploaded_file and the request URL with pino=."""
+    from e2e.journeys import upload_succeeded
+
+    debug_page = (
+        "ValueError at /pibup/upload\nRequest URL: https://ps1.fpgas.online/pibup/upload?pino=7\n"
+        "Traceback ... def handle_uploaded_file(f, pino): ..."
+    )
+    assert not upload_succeeded(debug_page)
+    assert upload_succeeded("uploaded top.bit to pi7")
+    assert not upload_succeeded("Server Error (500)")
