@@ -23,6 +23,13 @@ from e2e import ocr
 # fpgas.online-cam/tests/measure-latency.mjs uses.
 CLOCK_REGION = (0.0, 0.0, 0.30, 0.12)
 
+# How much of the clock region has to change between two shots for the clock
+# to count as ticking. Measured 2026-09-14 in real Chrome: a live feed moves
+# 0.4% to 1.7% of it every 1.5s (welland p33, p37 -- the faintest clocks on
+# the site); a player that never started, and a stream that is gone, move
+# 0.000% of it even while an error overlay animates elsewhere in the frame.
+TICK = 0.001
+
 # Everything below the clock overlay. Use this when asking "did the picture
 # change?", because the clock changes every second and would answer yes on its
 # own. Deliberately NOT a box around the LEDs: each board's camera is aimed
@@ -150,18 +157,30 @@ class Camera:
         )
 
     def is_live(self, gap: float = 3.0) -> tuple[bool, str]:
-        """True when the burned-in clock advanced across two readings `gap` seconds apart."""
-        first = self.clock()
-        time.sleep(gap)
-        second = self.clock()
-        live = clock_advanced(first, second, gap)
-        detail = f"clock {first!r} -> {second!r}"
+        """True when the burned-in clock is ticking across `gap` seconds.
+
+        What a person sees is the clock's digits changing every second, and
+        that is what is measured: the fraction of the clock's pixels that
+        moved between shots, in each of two halves of the gap. Reading the
+        digits is a separate matter -- the clock on welland's p33 and p37 is
+        grey on magenta and OCR returns rubbish for it while the picture is
+        plainly live, which is how two live cameras were once reported dead.
+        The digits go into the detail when they can be read, and a readable
+        clock that stands still while the pixels move is reported too.
+        """
+        shots = [self.shot()]
+        for _ in range(2):
+            time.sleep(gap / 2)
+            shots.append(self.shot())
+        ticks = [changed_fraction(a, b, region=CLOCK_REGION) for a, b in zip(shots, shots[1:])]
+        live = all(tick > TICK for tick in ticks)
+        first, second = (ocr.read_clock(crop_fraction(s, *CLOCK_REGION)) for s in (shots[0], shots[-1]))
+        moved = ", ".join(f"{tick:.2%}" for tick in ticks)
+        detail = f"clock {first!r} -> {second!r} (clock pixels moved {moved})"
+        if live and first is not None and second is not None and not clock_advanced(first, second, gap):
+            detail = f"{detail}; the digits read did not advance plausibly, so one reading is a misread"
         if not live:
             detail = f"{detail}; player {self.player_state()}"
-            if first is None:
-                # Distinguish "no clock in the picture" from "OCR misread it".
-                raw = ocr.read_clock_debug(crop_fraction(self.shot(), *CLOCK_REGION))
-                detail = f"{detail}; ocr read {raw!r}"
         return live, detail
 
     def wait_for_change(
@@ -237,25 +256,28 @@ class Camera:
         None of that is a picture that stopped; it is a picture skipping
         about, which is what a buffer does, not what a dead board does.
 
-        What a person sees when the power goes is a frame that sits there. So
-        require the same reading several times running -- or no readable clock
-        at all, which is the dark-player case -- before saying it stopped.
-        Five readings three seconds apart: a player can stall for a few
-        seconds on a live feed without the board having gone anywhere.
+        What a person sees when the power goes is a frame that sits there,
+        clock and all. So require the clock's pixels not to move across
+        several shots running -- which also covers the dark player, where
+        there is no clock -- before saying it stopped. Five shots three
+        seconds apart: a player can stall for a few seconds on a live feed
+        without the board having gone anywhere.
         """
         deadline = time.monotonic() + timeout
-        seen: list[str | None] = []
+        shots: list = []
+        readings: list[str | None] = []
         while time.monotonic() < deadline:
-            try:
-                seen.append(self.clock())
-            except Exception:  # noqa: BLE001 - an unreadable picture is a reading too
-                seen.append(None)
-            seen = seen[-consecutive:]
-            if len(seen) == consecutive and all(r == seen[0] for r in seen):
-                stuck = "no clock readable" if seen[0] is None else f"clock stuck at {seen[0]!r}"
-                return True, f"{stuck} across {consecutive} readings {gap}s apart"
+            shots.append(self.shot())
+            shots = shots[-consecutive:]
+            if len(shots) == consecutive:
+                ticks = [changed_fraction(a, b, region=CLOCK_REGION) for a, b in zip(shots, shots[1:])]
+                if all(tick <= TICK for tick in ticks):
+                    clock = ocr.read_clock(crop_fraction(shots[-1], *CLOCK_REGION))
+                    stuck = "no clock readable" if clock is None else f"clock stuck at {clock!r}"
+                    return True, f"{stuck}; its pixels did not move across {consecutive} shots {gap}s apart"
+            readings.append(ocr.read_clock(crop_fraction(shots[-1], *CLOCK_REGION)))
             time.sleep(gap)
-        return False, f"the picture never stuck within {timeout}s; last readings {seen}"
+        return False, f"the picture never stuck within {timeout}s; last readings {readings[-consecutive:]}"
 
     def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
         """Did the picture come alive within the timeout? Reports, never raises.
