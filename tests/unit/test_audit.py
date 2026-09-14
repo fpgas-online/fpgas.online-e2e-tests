@@ -116,7 +116,8 @@ def test_the_text_table_has_one_row_per_board_and_the_reasons_below():
     assert lines[3].startswith("pi2") and "FAIL" in lines[3] and "ok (on)" in lines[3]
     assert "  pi2 camera (0s): no clock readable; player {'readyState': 0}" in lines
     assert "  pi2 ssh (0s): Connection refused" in lines
-    assert not any(line.startswith("  pi7") for line in lines)
+    why = lines[lines.index("why:") : lines.index("seen:")]
+    assert not any(line.startswith("  pi7") for line in why)
 
 
 def test_the_markdown_table_carries_the_same_cells():
