@@ -2,24 +2,11 @@
 
 from __future__ import annotations
 
-import dataclasses
-
 import pytest
 
-from e2e.camera import Camera
 from e2e.picker import OnDead, choose
+from e2e.session import BoardSession, open_board
 from e2e.site import parse_boards
-from e2e.statuslog import StatusLog
-from e2e.terminal import WebTerminal
-
-
-@dataclasses.dataclass
-class BoardSession:
-    board: object
-    page: object
-    terminal: WebTerminal
-    camera: Camera
-    status: StatusLog
 
 
 @pytest.fixture
@@ -28,8 +15,6 @@ def board_page(browser, browser_context_args, page, site, seed, on_dead, evidenc
 
     Any board the index lists will do, and every one is assumed to be an Arty.
     """
-
-    contexts: list = []
 
     def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
@@ -47,40 +32,17 @@ def board_page(browser, browser_context_args, page, site, seed, on_dead, evidenc
         candidates = choose(boards, seed)
         problems = []
         for board in candidates:
-            session = _attach(board)
+            session = open_board(browser, browser_context_args, site, board)
             ok, why = _is_working(session)
             if ok:
                 print(f"[e2e] testing on {board.hostname} ({board.fpga_board})")
                 return session
             problems.append(f"{board.hostname}: {why}")
-            contexts.pop().close()
+            session.close()
             if on_dead is OnDead.FAIL:
                 break
         raise AssertionError(
             "no usable board.\n  " + "\n  ".join(problems) + f"\n(--on-dead={on_dead.value})"
-        )
-
-    def _attach(board) -> BoardSession:
-        # A fresh browser context per candidate, which is what a person who
-        # opens a board page fresh gets. Reusing one browser context leaves
-        # the video player dead from about the third board page onward --
-        # measured against ps1: pi7 live, pi9 live, then pi2 dead and pi7 dead
-        # again, readyState 0 and paused, on streams that serve fine. A new
-        # tab in the same context is not enough; the breakage outlives the
-        # page. Shopping for a board through a poisoned context blames each
-        # board in turn for a fault that belongs to the browsing session.
-        ctx = browser.new_context(**browser_context_args)
-        contexts.append(ctx)
-        fresh = ctx.new_page()
-        terminal = WebTerminal(fresh)
-        terminal.attach()
-        fresh.goto(site.url(board.page_path), wait_until="domcontentloaded")
-        return BoardSession(
-            board=board,
-            page=fresh,
-            terminal=terminal,
-            camera=Camera(fresh, f"#video-player{board.port}"),
-            status=StatusLog(fresh, board.port),
         )
 
     def _is_working(session) -> tuple[bool, str]:
