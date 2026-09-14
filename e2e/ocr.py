@@ -27,6 +27,7 @@ _ANSI = re.compile(
     r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"  # OSC sequences
     r"|\x1b[()][B0]"                       # charset selection
     r"|\x1b[=>]"                           # keypad mode
+    r"|[\x0e\x0f]"                          # shift out / shift in, which tmux sprinkles through the prompt
 )
 _WHITESPACE = re.compile(r"\s+")
 
