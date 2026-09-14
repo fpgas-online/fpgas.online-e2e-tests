@@ -68,6 +68,11 @@ def test_the_camera_note_says_when_the_reset_button_was_needed():
         log.ground_truth("live", True, detail="the picture needed the page's 'reset video player' button: x -> y")
 
     assert run_journey("camera", _needed_reset, note_from=camera_note).cell == "ok (reset needed)"
+
+    def _needed_play(log):
+        log.ground_truth("live", True, detail="the picture needed the player's Play button: x -> y")
+
+    assert run_journey("camera", _needed_play, note_from=camera_note).cell == "ok (play needed)"
     assert run_journey("camera", _sees_the_board, note_from=camera_note).cell == "ok"
 
 

@@ -142,12 +142,37 @@ changing), and pressed Reset (the status box said `set power off`, the
 picture stuck at `05:02:57` for five readings, came back, and the Pi's
 uptime was 2004s before and less than the wait after).
 
+### Later the same day: the quick audit at 05:39 UTC
+
+`--quick` leaves out the upload and the power cycle. Run on both sites after
+the camera instrument was corrected (see the reliability section below) and
+after welland's terminal fix went in. Reports:
+[welland](audits/2026-09-14-welland-quick-0539utc.md),
+[ps1](audits/2026-09-14-ps1-quick-0539utc.md).
+
+| | page | camera | terminal | poe status | ssh |
+|---|---|---|---|---|---|
+| **welland** (14) | 14 ok | **14 ok** | **13 ok** (p46: "Websocket authentication failed.") | 0 shown | 0 |
+| **ps1** (9) | 0 | pi7 only | pi3, pi9 (pi7 occupied by a stranger's half-typed command) | 9 say on | pi3, pi9 |
+
+Two changes from the morning tables. welland's web terminals came back on
+13 of 14 boards between the two runs. And the morning's camera failures on
+welland p33, p37 and p43 were not the boards: p33 and p37 were the clock
+reader failing on grey-on-magenta digits, and p43 was the player-start
+fault below, which had cleared by the afternoon.
+
+ps1 pi9's camera is the reverse case. Its stream is fine (the index page
+shows it), but on its own board page the player showed its big Play button
+and nothing else on three loads in four, in real Chrome, and pressing Play
+did nothing; neither did "reset video player". A person on that page sees a
+Play button that does not work. pi7's page started every time.
+
 ### The faults, by site
 
 | Fault | Where | Found |
 |---|---|---|
 | **The Reset button does not power cycle the board.** Confirmed by the audit on pi-sw2-p42, the one welland board with a working terminal, so the uptime was read first: after the click the status box added only `socket connected / checking status: 42 / socket closed.` and never `set power`, and the picture kept advancing for 120s (`04:57:56` ... `04:58:09`). Same result on 2026-09-14 on p16, p37 and p42 by camera alone, controlled against ps1 pi7 in the same run. `toggle()` and `status()` share `mk_params()` and the SNMP helpers, and `/snmp/status` fails here too, so both directions of PoE control are almost certainly failing the same way. The user is told nothing: `dcws.js` calls `fetch('/snmp/toggle').then((error) => console.log(error))`, which has no error branch, so a failed power cycle looks exactly like a successful one. | welland | 2026-09-14 |
-| **The web terminal cannot log in on 13 of 14 boards.** The wssh iframe shows its blank login form and `Authentication failed.`; no `/wssh/ws` socket is opened. pi-sw2-p42 reached a prompt in 12s on 2026-09-14 04:00 UTC, so whatever differs on p42 is the fix. It blocks every test that needs a shell. | welland | 2026-09-12 |
+| **The web terminal could not log in on 13 of 14 boards** until 2026-09-14: the wssh iframe showed its blank login form and `Authentication failed.`. Fixed fleet-wide between 04:00 and 05:39 UTC that day; by the 05:39 quick audit 13 of 14 reached a prompt in 8-11s. The remaining one, pi-sw2-p46, shows `Websocket authentication failed.` instead. | welland | 2026-09-12, mostly fixed 2026-09-14 |
 | **The upload form rejects a bitstream before Django sees it**: `413 Request Entity Too Large` from nginx for the 2.1 MB `counter_test/top.bit`, on all 14 boards. Nothing lands on the Pi (checked on p42, where the terminal works). ps1 accepts the same file. | welland | 2026-09-14 |
 | **`Check PoE` never answers.** The status box shows `checking status: N` and nothing else on all 14 boards, because `POST /snmp/status` returns HTTP 500. ps1 answers `snmp: get power on`. | welland | 2026-09-12 |
 | **The ssh command the page prints does not connect**: `ssh -p 2NN22 pi@welland.fpgas.online` prints nothing within 30s on all 14 boards (the per-board forward ports time out on IPv4 and IPv6, while :22 answers). | welland | 2026-09-12 |
@@ -155,7 +180,7 @@ uptime was 2004s before and less than the wait after).
 | **Six of nine boards cannot be reached at all**: the web terminal's iframe says `Unable to connect to 10.21.0.1NN:22` and the printed ssh command gets `No route to host`, on pi2, pi5, pi11, pi13, pi21 and pi23. They are **powered but not responding**, not off: `Check PoE` says `power on` for every one of them. | ps1 | 2026-09-13 |
 | **The page does not say what FPGA is fitted.** Every heading reads only `Accessing piN`; welland's read `Accessing pi-sw2-p37 -- Digilent Arty A7-35T`. A user cannot tell what hardware they are about to program. | ps1 | 2026-09-12 |
 | **One visitor's half-typed command blocks every other visitor.** The web terminal and direct ssh both land in one shared tmux session per board. On 2026-09-14 pi7 had `sudo apt install pipx` sitting unrun on its prompt line for over an hour; every other visitor's terminal, and the printed ssh command, arrive at that line with no prompt to use. The suite refuses to press Enter into someone else's command, so pi7's terminal, upload and power-cycle cells all fail with that line quoted. | both (design) | 2026-09-14 |
-| **The camera player sometimes fails to start** on a camera that is streaming fine: black video, `readyState 0`, `paused`, no error. The page's own "reset video player" button clears it; the audit marks such cells `ok (reset needed)` (1 of 11 live welland cameras on 2026-09-14; earlier samples were nearer one load in four). | both | 2026-09-13 |
+| **The camera player sometimes fails to start** on a camera that is streaming fine: the pane shows the player's big Play button, or plain black, with `readyState 0`, the `src` still the `.m3u8` and no error. Sometimes the Play button or the page's "reset video player" button clears it, and the audit marks such cells `ok (play needed)` or `ok (reset needed)`. On ps1 pi9 on 2026-09-14 neither did: three page loads in four in real Chrome showed a Play button that did nothing, while the same stream played on the index page and pi7's page started every time. | both | 2026-09-13 |
 | Running the pre-split monorepo build, so its pages differ from welland's | ps1 | known |
 
 Note the reversal worth keeping in mind: **ps1 runs older code but is in
@@ -210,3 +235,12 @@ The rule the suite now follows: a negative result is not evidence until the
 same instrument has produced a positive one under control, in the same run.
 That is how the welland power-cycle finding above was established, and it is
 why it can be trusted where the earlier claims could not.
+
+The rule caught one more on 2026-09-14. The morning audit called welland
+p33 and p37's cameras dead; the index page showed both pictures moving. The
+clock reader could not read grey digits on a magenta board and returned
+`6::30:58` and `06:3752`. Reading the digits was never what a person does to
+see that a feed is live; seeing the clock change is. The camera now judges
+liveness by whether the clock's pixels move (0.4-1.7% of the clock region
+every 1.5s on a live feed, 0.000% on a dead player or a dead stream, measured
+in real Chrome), and reads the digits only for the record.

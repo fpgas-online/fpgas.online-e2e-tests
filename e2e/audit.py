@@ -138,8 +138,15 @@ def audit_board(session, known_hosts, quick: bool = False) -> BoardAudit:
 
 
 def camera_note(_result, log: EvidenceLog) -> str:
-    """Say when the picture only came after the page's reset button."""
-    return "reset needed" if any("reset video player" in e.detail for e in log.entries if e.passed) else ""
+    """Say when the picture only came after a press: Play, or the page's reset button."""
+    for entry in log.entries:
+        if not entry.passed:
+            continue
+        if "reset video player" in entry.detail:
+            return "reset needed"
+        if "Play button" in entry.detail:
+            return "play needed"
+    return ""
 
 
 def poe_note(result, _log: EvidenceLog) -> str:

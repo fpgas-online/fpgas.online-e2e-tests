@@ -229,19 +229,33 @@ class Camera:
         """Click the page's own "reset video player" button, as a person would."""
         self.page.click(f"#refresh-video-player{self.port}")
 
-    def check_live_with_recovery(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
-        """Wait for the picture, and if it does not come back, do what a person does.
+    def press_play_if_offered(self) -> bool:
+        """If the player is showing its big Play button, press it, as a person would."""
+        button = self.page.locator(f"{self.selector} .vjs-big-play-button")
+        if not button.is_visible():
+            return False
+        button.click()
+        return True
 
-        A stalled player looks exactly like a dead camera: a frozen frame,
-        readyState stuck below HAVE_FUTURE_DATA. The page offers a "reset
-        video player" button for precisely this, so a person clicks it rather
-        than concluding the board is broken. The detail says whether the
-        button was needed, because a picture that only returns after a manual
-        reset is itself a finding.
+    def check_live_with_recovery(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
+        """Wait for the picture, and if it does not come, do what a person does.
+
+        A player that never started looks exactly like a dead camera: black,
+        readyState 0. What a person sees is either the player's own Play
+        button, which they press, or a black pane, for which the page offers
+        "reset video player". Both are tried, in that order. The detail says
+        what was needed, because a picture that only comes after a press is
+        itself a finding: measured on ps1 pi9 on 2026-09-14, three loads in
+        four showed the Play button, and pressing it did nothing.
         """
         live, detail = self.check_live(timeout, gap=gap)
         if live:
             return True, detail
+        if self.press_play_if_offered():
+            live, after = self.check_live(timeout, gap=gap)
+            if live:
+                return True, f"the picture needed the player's Play button: {detail} -> {after}"
+            detail = f"{detail}; pressing the player's Play button did not help ({after})"
         self.reset_player()
         live, after = self.check_live(timeout, gap=gap)
         return live, f"the picture needed the page's 'reset video player' button: {detail} -> {after}"
