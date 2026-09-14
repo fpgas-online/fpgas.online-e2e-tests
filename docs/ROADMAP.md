@@ -21,9 +21,13 @@ Pi burns into the picture and sees it advance, and each terminal command is
 read three ways -- WebSocket bytes, clipboard copy, and OCR of the canvas
 pixels -- and required to agree.
 
-The suite validates the *depth* of one path, not the breadth of identical
-paths: if PoE control works on one board, it is not proven again on thirteen
-more. One board is picked at random per run.
+The scheduled suite validates the *depth* of one path, not the breadth of
+identical paths: one board is picked at random per run. The breadth is the
+**audit** (`tests/audit`), which runs every journey on every board the index
+lists and prints one row per board -- page, camera, terminal, PoE status,
+ssh, upload, power cycle -- so that "what is the state of the site" is a
+table the suite produces rather than something measured by hand. It is run on
+demand, because it power-cycles every board.
 
 Every board is assumed to be an Arty. The sites do not reliably say what FPGA
 is fitted -- ps1 names none at all -- so selecting by the advertised type only
@@ -131,6 +135,16 @@ endpoint answers, and its ssh forward ports are reachable -- all three of
 which are broken on welland.
 
 ## Withdrawn
+
+**"The browser must launch with `--autoplay-policy=no-user-gesture-required`
+or the player never starts"** was in the spec, the plan and the README. On
+2026-09-14 the page's picture came alive with no flag at all in all four
+combinations tried -- Playwright's bundled Chromium and Google Chrome, each
+headless and headed. The `<video>` is muted, and muted autoplay is allowed
+under the default policy, as it is for a user. The original measurement was
+taken through the one-in-four player-start bug listed above. The suite now
+runs Google Chrome with a window and no launch flags, and refuses any other
+browser.
 
 **"Navigating between board pages kills the video player"** was reported on
 2026-09-13 and is not a site fault. Playwright's bundled Chromium never
