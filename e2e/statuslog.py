@@ -8,7 +8,10 @@ Everything here produces claims.
 
 from __future__ import annotations
 
+import re
 import time
+
+_POWER_LINE = re.compile(r"power\s+(on|off)\b", re.IGNORECASE)
 
 
 class StatusLog:
@@ -38,6 +41,16 @@ class StatusLog:
                 return True, f"after the click the box said: {added.strip()!r}"
             self.page.wait_for_timeout(500)
         return False, f"{needle!r} never appeared after the click; the box added: {added.strip()!r}"
+
+    def poe_state(self) -> str:
+        """The last PoE state the box reported: "on", "off", or "" if it never said.
+
+        The box words it "snmp: get power on" after "Check PoE" and "snmp:
+        set power off" during a reset; the last word of the last such line
+        is what a person reads off it.
+        """
+        states = _POWER_LINE.findall(self.text())
+        return states[-1].lower() if states else ""
 
     def wait_for(self, needle: str, timeout: float = 60.0) -> tuple[bool, str]:
         """Wait for a line to appear. Returns (seen, detail) rather than raising."""
