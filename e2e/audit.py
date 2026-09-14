@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import time
 from collections.abc import Callable
 
 from e2e.board import Board
@@ -28,11 +29,16 @@ class Check:
     passed: bool
     detail: str
     note: str = ""  # a word for the cell itself: "reset needed", "on", "off"
+    seconds: float = 0.0  # how long a person waited for this answer
 
     @property
     def cell(self) -> str:
         word = "ok" if self.passed else "FAIL"
         return f"{word} ({self.note})" if self.note else word
+
+    @property
+    def timed(self) -> str:
+        return f"{self.cell} {self.seconds:.0f}s"
 
 
 @dataclasses.dataclass
@@ -72,6 +78,7 @@ def run_journey(
     log = EvidenceLog()
     crashed = ""
     result = None
+    started = time.monotonic()
     try:
         result = journey(log)
     except AssertionError as exc:
@@ -93,7 +100,7 @@ def run_journey(
     else:
         passed, detail = True, "; ".join(e.detail for e in log.entries if e.detail)
     note = note_from(result, log) if note_from else ""
-    return Check(name=name, passed=passed, detail=detail, note=note)
+    return Check(name=name, passed=passed, detail=detail, note=note, seconds=time.monotonic() - started)
 
 
 def audit_board(session, known_hosts) -> BoardAudit:
@@ -148,7 +155,7 @@ def render_text(site: str, rows: list[BoardAudit], when: dt.datetime | None = No
         lines.append("")
         lines.append("why:")
         for hostname, check in failures:
-            lines.append(f"  {hostname} {check.name}: {check.detail}")
+            lines.append(f"  {hostname} {check.name} ({check.seconds:.0f}s): {check.detail}")
     return "\n".join(lines)
 
 
@@ -164,5 +171,5 @@ def render_markdown(site: str, rows: list[BoardAudit], when: dt.datetime | None 
     if failures:
         lines.append("")
         for hostname, check in failures:
-            lines.append(f"- **{hostname} {check.name}**: {check.detail}")
+            lines.append(f"- **{hostname} {check.name}** ({check.seconds:.0f}s): {check.detail}")
     return "\n".join(lines) + "\n"

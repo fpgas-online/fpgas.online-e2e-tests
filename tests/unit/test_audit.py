@@ -129,3 +129,16 @@ def test_the_markdown_table_carries_the_same_cells():
 
 def test_a_row_lists_its_failures_in_order():
     assert [c.name for c in _rows()[1].failures] == ["camera", "terminal", "ssh", "upload", "power cycle"]
+
+
+def test_a_cell_records_how_long_the_answer_took():
+    import time
+
+    def _slow(log):
+        time.sleep(0.05)
+        log.ground_truth("fine", True)
+
+    check = run_journey("camera", _slow)
+    assert check.seconds >= 0.05
+    assert check.timed.startswith("ok ")
+    assert check.timed.endswith("s")

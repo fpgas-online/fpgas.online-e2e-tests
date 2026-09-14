@@ -52,7 +52,7 @@ def test_every_board_at_the_site(
                 print(f"[audit] no screenshot of {board.hostname}: {exc}")
             session.close()
         rows.append(row)
-        cells = "  ".join(f"{c.name}={c.cell}" for c in row.checks)
+        cells = "  ".join(f"{c.name}={c.timed}" for c in row.checks)
         print(f"[audit] {board.hostname}: {cells}", flush=True)
 
     table = render_text(site.name, rows)
