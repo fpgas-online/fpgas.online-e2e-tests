@@ -240,10 +240,18 @@ class WebTerminal:
         )
 
     def _screen_shows_prompt(self) -> bool:
-        """Is there a prompt on the terminal as rendered? What a person checks."""
+        """Is there a prompt on the terminal as rendered? What a person checks.
+
+        A glance, so it must not wait long for a terminal surface that is not
+        there: on a board whose login fails there is no xterm at all, and a
+        60s wait per look turned a 45s timeout into 91s. What the iframe
+        shows instead -- "Authentication failed." -- is kept as the screen
+        reading, because that is what the person sees.
+        """
         try:
-            self._last_screen = self._ocr_visible()
-        except Exception:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
+            self._last_screen = self._ocr_visible(retry_wait=2.0)
+        except Exception as exc:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
+            self._last_screen = f"(no terminal surface: {exc})"
             return False
         return at_a_prompt(without_cursor(self._last_screen), self.prompt)
 
@@ -386,18 +394,19 @@ class WebTerminal:
 
     # -- the two screen-side readings --
 
-    def _retrying(self, read):
+    def _retrying(self, read, wait: float = 60.0):
         """Read the terminal surface, once more if it was mid-rebuild.
 
         WebSSH does not rebuild the iframe once and settle: after "reset ssh"
         the xterm appears, the prompt arrives, and the surface can still be
         torn down and built again underneath. A person waits for it to come
         back and looks again rather than declaring the terminal broken.
+        `wait` bounds how long to wait for it to come back.
         """
         try:
             return read()
         except Exception:  # noqa: BLE001 - a rebuild in progress, not a dead terminal
-            self.wait_for_terminal()
+            self.wait_for_terminal(timeout=wait)
             return read()
 
 
@@ -414,10 +423,11 @@ class WebTerminal:
         self.page.keyboard.press("Control+Insert")
         return self.page.evaluate("navigator.clipboard.readText()")
 
-    def _ocr_visible(self, timeout: float = 5.0) -> str:
+    def _ocr_visible(self, timeout: float = 5.0, retry_wait: float = 60.0) -> str:
         shot = self._retrying(
             lambda: self.page.frame_locator(self.frame_selector)
             .locator(".xterm-screen")
-            .screenshot(timeout=timeout * 1000)
+            .screenshot(timeout=timeout * 1000),
+            wait=retry_wait,
         )
         return ocr.read_text(Image.open(io.BytesIO(shot)), psm=6)

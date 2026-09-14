@@ -114,8 +114,8 @@ def test_the_text_table_has_one_row_per_board_and_the_reasons_below():
     assert lines[1].split() == header
     assert lines[2].startswith("pi7") and lines[2].count("ok") == 7
     assert lines[3].startswith("pi2") and "FAIL" in lines[3] and "ok (on)" in lines[3]
-    assert "  pi2 camera: no clock readable; player {'readyState': 0}" in lines
-    assert "  pi2 ssh: Connection refused" in lines
+    assert "  pi2 camera (0s): no clock readable; player {'readyState': 0}" in lines
+    assert "  pi2 ssh (0s): Connection refused" in lines
     assert not any(line.startswith("  pi7") for line in lines)
 
 
@@ -124,7 +124,7 @@ def test_the_markdown_table_carries_the_same_cells():
     assert "| board | page | camera | terminal | poe status | ssh | upload | power cycle |" in md
     assert "| pi7 | ok | ok | ok | ok | ok | ok | ok |" in md
     assert "| pi2 | ok | FAIL | FAIL | ok (on) | FAIL | FAIL | FAIL |" in md
-    assert "- **pi2 terminal**: no shell prompt within 45s" in md
+    assert "- **pi2 terminal** (0s): no shell prompt within 45s" in md
 
 
 def test_a_row_lists_its_failures_in_order():

@@ -316,7 +316,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
         page.go_back()
     terminal.reset()
     try:
-        terminal.wait_for_prompt()
+        terminal.wait_for_prompt(timeout=45)
     except TimeoutError as exc:
         evidence.ground_truth("the web terminal is back after returning to the page", False, detail=str(exc))
 

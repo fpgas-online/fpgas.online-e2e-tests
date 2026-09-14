@@ -125,7 +125,7 @@ def _terminal(page, frames, screen):
     term._frames = list(frames)
     term._last_screen = ""
     term.page = page
-    term._ocr_visible = lambda: screen
+    term._ocr_visible = lambda **_: screen
     return term
 
 
