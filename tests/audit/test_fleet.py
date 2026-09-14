@@ -26,7 +26,7 @@ from e2e.site import parse_boards
 
 @pytest.mark.live
 def test_every_board_at_the_site(
-    browser, browser_context_args, page, site, boards_wanted, known_hosts, output_dir, evidence
+    browser, browser_context_args, browser_identity, page, site, boards_wanted, known_hosts, output_dir, evidence
 ):
     page.goto(site.index_url, wait_until="domcontentloaded")
     boards = parse_boards(page.content())

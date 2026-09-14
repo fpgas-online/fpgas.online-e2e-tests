@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import random
 from pathlib import Path
 
@@ -70,20 +69,22 @@ def known_hosts(output_dir) -> Path:
     path.unlink(missing_ok=True)
 
 
-BROWSER_ARGS = ["--autoplay-policy=no-user-gesture-required"]
-
-
 @pytest.fixture(scope="session")
 def browser_type_launch_args(browser_type_launch_args):
-    """Let the video actually play; optionally use a browser of your choosing."""
-    args = {
-        **browser_type_launch_args,
-        "args": [*browser_type_launch_args.get("args", []), *BROWSER_ARGS],
-    }
-    override = os.environ.get("CHROMIUM")
-    if override:
-        args["executable_path"] = override
-    return args
+    """The browser a person has: Google Chrome, with a window.
+
+    Not Playwright's bundled Chromium, and not headless. Measured on
+    2026-09-14: pytest-playwright's default is a headless Chromium build that
+    announces itself as "HeadlessChrome/151", which no user runs. The
+    --autoplay-policy flag the suite used to carry is not needed by any of
+    the four combinations (bundled or Chrome, headless or headed): the page's
+    <video> is muted and autoplays under the default policy, as it does for a
+    user. The flag was added on a measurement taken through the player-start
+    bug this suite later found, and it papered over nothing real.
+
+    Without a display, run under xvfb: `xvfb-run -a uv run pytest ...`.
+    """
+    return {**browser_type_launch_args, "channel": "chrome", "headless": False}
 
 
 @pytest.fixture(scope="session")
@@ -94,6 +95,31 @@ def browser_context_args(browser_context_args):
         "permissions": ["clipboard-read", "clipboard-write"],
         "viewport": {"width": 1600, "height": 1000},
     }
+
+
+@pytest.fixture(scope="session")
+def browser_identity(browser) -> str:
+    """Refuse to test the site with anything but the browser a user has.
+
+    What the page sees is what is checked: the brands the browser reports to
+    the site (Google Chrome, not merely Chromium) and a user agent that is
+    not the headless variant. Printed so every run's log says what ran.
+    """
+    page = browser.new_page()
+    try:
+        identity = page.evaluate(
+            """() => ({
+                brands: (navigator.userAgentData ? navigator.userAgentData.brands : []).map(b => b.brand),
+                userAgent: navigator.userAgent,
+            })"""
+        )
+    finally:
+        page.close()
+    described = f"{'/'.join(identity['brands'])} {browser.version}; {identity['userAgent']}"
+    print(f"\n[e2e] browser: {described}")
+    assert "Google Chrome" in identity["brands"], f"not Google Chrome: {described}"
+    assert "HeadlessChrome" not in identity["userAgent"], f"headless, which no user runs: {described}"
+    return described
 
 
 @pytest.fixture

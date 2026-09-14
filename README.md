@@ -10,32 +10,62 @@ to any visitor.
 
 ## Running
 
-Requires an OCR engine and a browser:
+Requires an OCR engine, Google Chrome, the ssh client, and a display:
 
-    sudo apt install tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
-    uv run playwright install chromium ffmpeg
+    sudo apt install tesseract-ocr tesseract-ocr-eng fonts-dejavu-core xvfb openssh-client
+    uv run playwright install chrome ffmpeg
 
 `ffmpeg` is what `--video` recording uses; without it every test errors during
 setup.
 
-The camera feed is H.264 in MPEG-TS. Playwright's bundled chromium decodes it
-fine (measured 2026-09-12 on 151.0.7922.34: 1280x1080, `readyState` 4), so no
-distribution browser is needed -- but the suite must launch with
-`--autoplay-policy=no-user-gesture-required`, which `tests/conftest.py` does.
-Without it the player silently never starts: `readyState` stays 0 with no
-error, which looks exactly like a codec failure and is not. Set `$CHROMIUM` to
-use a different browser binary.
+**The suite runs Google Chrome with a window, because that is what a user
+runs.** It refuses anything else: at session start it asks the browser what it
+tells the site about itself and stops unless the brands include "Google
+Chrome" and the user agent is not the headless variant. Playwright's bundled
+Chromium announces itself as `HeadlessChrome/151`, which no person browses
+with. Without a display, give it one:
+
+    xvfb-run -a uv run pytest tests/shared --site ps1
+
+The camera feed is H.264 in MPEG-TS and plays under Chrome's default autoplay
+policy: the page's `<video>` is muted. No launch flags are needed or used.
 
 Then:
 
-    uv run pytest tests/unit                       # offline, no site contact
-    uv run pytest tests/shared --site welland      # against production
-    uv run pytest tests/shared --site ps1
-    uv run pytest tests/shared --site welland --seed 1234 --on-dead retry
-    uv run pytest tests/shared --site welland -k power_cycle --headed
+    uv run pytest tests/unit                                    # offline, no site contact
+    xvfb-run -a uv run pytest tests/shared --site welland      # against production
+    xvfb-run -a uv run pytest tests/shared --site ps1
+    xvfb-run -a uv run pytest tests/shared --site welland --seed 1234 --on-dead retry
+    uv run pytest tests/shared --site welland -k power_cycle   # on a desktop: watch it
 
 `--site` takes `welland` or `ps1`. Each run prints the random seed it used, so
 a failure can be replayed against the same board with `--seed`.
+
+## Auditing a whole site
+
+    xvfb-run -a uv run pytest tests/audit --site ps1 -s
+
+Where a test picks one board and stops at the first thing wrong, the audit
+visits every board the index lists and runs the same journeys on each,
+producing one row per board:
+
+    ### ps1: 9 boards, audited 2026-09-14T04:10:22Z
+    board  page  camera            terminal  poe status  ssh   power cycle
+    pi2    ok    FAIL              FAIL      ok (on)     FAIL  FAIL
+    pi7    ok    ok (reset needed) ok        ok (on)     ok    ok
+    ...
+
+    why:
+      pi2 camera: ...
+
+The table is printed at the end, written to `<output>/audit-<site>.md`, and
+on GitHub appended to the job summary. A cell passes only if every
+observation in that journey held; the reasons under the table quote what was
+seen. The test fails if any cell failed.
+
+It power-cycles every board, so it is not on the six-hourly schedule: run it
+from the Actions page with the "audit" box ticked, or by hand. `--boards
+pi7,pi9` narrows it during development.
 
 ## How it decides something works
 

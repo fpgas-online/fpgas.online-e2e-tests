@@ -18,6 +18,10 @@ on:
         default: fail
         type: choice
         options: [fail, retry]
+      audit:
+        description: "Audit every board at the site instead (power-cycles all of them; about an hour per site)"
+        default: false
+        type: boolean
 
 jobs:
   unit:
@@ -49,6 +53,7 @@ jobs:
           esac
 
   shared:
+    if: ${{ !inputs.audit }}
     needs: [unit, plan]
     runs-on: ubuntu-latest
     strategy:
@@ -66,12 +71,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
       - name: Install the browser and ffmpeg
-        # ffmpeg is what --video recording needs; without it every test errors
-        # at setup with "Executable doesn't exist at .../ffmpeg-linux".
-        run: uv run playwright install --with-deps chromium ffmpeg
+        # The suite runs Google Chrome, headed, because that is what a user
+        # runs; xvfb gives it a display. ffmpeg is what --video recording
+        # needs; without it every test errors at setup.
+        run: |
+          uv run playwright install --with-deps chrome ffmpeg
+          sudo apt-get install -y xvfb
       - name: Run the suite against ${{ matrix.site }}
         run: |
-          uv run pytest tests/shared -v -s \
+          xvfb-run -a uv run pytest tests/shared -v -s \
             --site ${{ matrix.site }} \
             --on-dead ${{ inputs.on_dead || 'fail' }} \
             ${{ inputs.seed && format('--seed {0}', inputs.seed) || '' }} \
@@ -84,3 +92,42 @@ jobs:
           name: e2e-${{ matrix.site }}-${{ github.run_id }}
           path: test-results/
           retention-days: 14
+
+  audit:
+    # Every board at the site, one row per board, in the job summary. Only by
+    # hand: it power-cycles every board and takes the best part of an hour.
+    if: ${{ inputs.audit }}
+    needs: [unit, plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        site: ${{ fromJSON(needs.plan.outputs.sites) }}
+    concurrency:
+      group: e2e-${{ matrix.site }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install the OCR engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng fonts-dejavu-core
+      - name: Install the browser and ffmpeg
+        run: |
+          uv run playwright install --with-deps chrome ffmpeg
+          sudo apt-get install -y xvfb
+      - name: Audit ${{ matrix.site }}
+        run: |
+          xvfb-run -a uv run pytest tests/audit -v -s \
+            --site ${{ matrix.site }} \
+            --screenshot on --video retain-on-failure --tracing retain-on-failure \
+            --output test-results
+      - name: Upload the report and artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-${{ matrix.site }}-${{ github.run_id }}
+          path: test-results/
+          retention-days: 90
