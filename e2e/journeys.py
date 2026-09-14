@@ -247,9 +247,11 @@ REMOTE = "~/Uploads/top.bit"
 # in 0.0000% of pixels (one blip of 0.0006%); once the counter was running,
 # consecutive shots differed by 0.03% to 3%, though about one pair in ten
 # was identical, which is why keeps_changing looks at several pairs. The
-# change reached the picture about 40s after the click.
-CHANGED = 0.0002
-STILL_RUNNING = 0.0002
+# change reached the picture about 40s after the click. A later pass on pi9
+# saw a genuine pair at 0.018%, so the line is drawn nearer the noise: eight
+# times the largest blip seen, a quarter of the smallest real change.
+CHANGED = 0.00005
+STILL_RUNNING = 0.00005
 
 
 _ERROR_PAGE = ("traceback", "server error", "exception", "not found", "forbidden")
