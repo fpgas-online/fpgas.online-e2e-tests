@@ -17,7 +17,6 @@ from e2e.journeys import SshBannerHasNoPassword, SshPortUnreachable
 pytest_plugins = ["pytester"]
 
 ISSUE = "https://github.com/fpgas-online/fpgas.online-infra/issues/191"  # the nested table's example
-REAL_ISSUE = "https://github.com/fpgas-online/fpgas.online-infra/issues/215"  # the real table's entry
 REPO = Path(__file__).parents[2]
 REAL = "test_ssh_instructions_on_the_page_let_you_log_in"
 
@@ -339,12 +338,10 @@ def test_the_real_table_names_real_tests_and_the_issue_url():
         assert "https://github.com/" in entry.reason
 
 
-def test_the_real_table_has_the_welland_ssh_entry_only_for_welland_and_only_for_a_banner_without_a_password():
-    key = f"tests/shared/test_direct_ssh.py::{REAL}"
-    entry = known_failures.KNOWN_FAILURES[("welland", key)]
-    assert REAL_ISSUE in entry.reason
-    assert entry.raises is SshBannerHasNoPassword
-    assert ("ps1", key) not in known_failures.KNOWN_FAILURES
+def test_the_real_table_is_empty_now_that_the_welland_ssh_login_works():
+    # The boards show the ssh banner with the password since the root update of 2026-10-05
+    # (fpgas-online/fpgas.online-infra#215), so the direct-ssh test is an ordinary test again on every site.
+    assert known_failures.KNOWN_FAILURES == {}
 
 
 def test_the_marker_exception_is_an_assertion_error_so_nothing_else_about_the_journey_changes():

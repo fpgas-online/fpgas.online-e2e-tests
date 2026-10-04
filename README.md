@@ -203,11 +203,10 @@ reason no stronger evidence is possible.
 
 `e2e/known_failures.py` is a small table of (site, test) pairs that are known to
 fail on that site, each with the issue that tracks it. Each entry is applied as a
-strict expected failure, for one kind of failure only (named by the entry's exception: at
-present, the board's sshd reaching its password prompt without having shown a banner that holds
-the password), so any other failure of the same test still fails the run, and so
+strict expected failure, for one kind of failure only (named by the entry's exception), so any
+other failure of the same test still fails the run, and so
 does the test starting to pass: that is the cue to remove the entry. The entry is
-removed when the linked issue is fixed. The audit is not affected: it reports
+removed when the linked issue is fixed. The table is empty at present. The audit is not affected: it reports
 the failure and its reason as it always did.
 
 ## What it tests

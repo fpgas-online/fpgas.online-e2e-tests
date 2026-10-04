@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from e2e.journeys import SshBannerHasNoPassword
-
 
 @dataclasses.dataclass(frozen=True)
 class KnownFailure:
@@ -39,18 +37,7 @@ class UnknownKnownFailure(pytest.UsageError):
 ROOT = Path(__file__).parents[1]
 
 # Keys: (site name, "<path of the test file from the repository root>::<test function>").
-KNOWN_FAILURES: dict[tuple[str, str], KnownFailure] = {
-    ("welland", "tests/shared/test_direct_ssh.py::test_ssh_instructions_on_the_page_let_you_log_in"): KnownFailure(
-        reason=(
-            "the board's sshd shows no banner with the password, so the page's instruction "
-            "('password is in login banner') cannot be followed: the printed ssh command reaches the "
-            "password prompt and the visitor was never shown a password. Tracked in "
-            "fpgas-online/fpgas.online-infra#215 (https://github.com/fpgas-online/fpgas.online-infra/issues/215). "
-            "Remove this entry when the boards' root carries the ssh banner"
-        ),
-        raises=SshBannerHasNoPassword,
-    ),
-}
+KNOWN_FAILURES: dict[tuple[str, str], KnownFailure] = {}
 
 
 def _defines(path: Path, function: str) -> bool:
