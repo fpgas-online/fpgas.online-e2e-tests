@@ -33,6 +33,10 @@ from e2e.terminal import (
 
 _HOST_KEY_QUESTION = r"\(yes/no(?:/\[fingerprint\])?\)\?"
 _PASSWORD_PROMPT = r"[Pp]assword:"
+# What the ssh client itself prints when it wants the password: "pi@host's password:". Waiting for the bare
+# word would stop at a banner line such as "password: <the password>", before the real prompt, and the
+# banner would be cut short there.
+_SSH_PASSWORD_PROMPT = r"\S+@[\w.-]+'s\s+" + _PASSWORD_PROMPT
 # What the page's block must look like for this to be the page's command and
 # not ours: the ssh client, a port, and user@host. Anything else is refused.
 _PRINTED_COMMAND = re.compile(r"^ssh\s+-p\s*\d+\s+\S+@[\w.-]+$")
@@ -100,7 +104,7 @@ def banner_from(printed: str) -> str:
         r"The authenticity of host.*?" + _HOST_KEY_QUESTION + r"\s*(?:yes)?", "", printed, flags=re.DOTALL
     )
     text = re.sub(r"Warning: Permanently added[^\n]*\n?", "", text)
-    text = re.sub(r"\S+@[\w.-]+'s\s+" + _PASSWORD_PROMPT + r".*$", "", text, flags=re.DOTALL)
+    text = re.sub(_SSH_PASSWORD_PROMPT + r".*$", "", text, flags=re.DOTALL)
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
@@ -174,11 +178,11 @@ def log_in_with_the_printed_command(
     try:
         # A person first sees either the host-key question or the banner and
         # then the password prompt.
-        which = child.expect([_HOST_KEY_QUESTION, _PASSWORD_PROMPT, pexpect.EOF, pexpect.TIMEOUT])
+        which = child.expect([_HOST_KEY_QUESTION, _SSH_PASSWORD_PROMPT, pexpect.EOF, pexpect.TIMEOUT])
         transcript += child.before + _after(child)
         if which == 0:
             child.sendline("yes")
-            which = child.expect([_PASSWORD_PROMPT, pexpect.EOF, pexpect.TIMEOUT]) + 1
+            which = child.expect([_SSH_PASSWORD_PROMPT, pexpect.EOF, pexpect.TIMEOUT]) + 1
             transcript += child.before + _after(child)
         printed = ocr.normalise(transcript)
         if which == 3:

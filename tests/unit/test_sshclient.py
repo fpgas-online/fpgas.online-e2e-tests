@@ -139,3 +139,53 @@ def test_a_login_that_lands_on_a_fault_under_the_prompt_fails_and_sends_nothing(
 
     assert not isinstance(caught.value, TerminalBusy)
     assert child.sent == ["ship7ohT"]
+
+
+# -- the prompt the client waits for ------------------------------------------------------------------------------
+
+
+BANNER_WITH_A_PASSWORD_LINE = (
+    "This board is public: the login is the same for everyone.\r\n"
+    "user: pi\r\n"
+    "password: ship7ohT\r\n"
+    "pi@welland.fpgas.online's password: "
+)
+
+
+def test_the_prompt_waited_for_is_ssh_s_own_not_a_banner_line_that_says_password():
+    import re
+
+    match = re.search(sshclient._SSH_PASSWORD_PROMPT, BANNER_WITH_A_PASSWORD_LINE)
+    assert match is not None
+    # it stops at the real prompt, so everything the server said is in front of it
+    assert BANNER_WITH_A_PASSWORD_LINE[: match.start()].endswith("password: ship7ohT\r\n")
+    assert re.search(sshclient._SSH_PASSWORD_PROMPT, "user: pi\r\npassword: ship7ohT\r\n") is None
+
+
+def test_a_banner_with_a_password_line_gives_that_password():
+    from e2e.sshbanner import password_from_banner
+
+    banner = banner_from(BANNER_WITH_A_PASSWORD_LINE)
+    assert "pi@welland" not in banner
+    assert password_from_banner(banner) == "ship7ohT"
+
+
+def test_the_login_waits_with_ssh_s_own_prompt(monkeypatch, tmp_path):
+    seen = []
+
+    class Child:
+        before, after = "", ""
+
+        def expect(self, patterns, **_kwargs):
+            seen.append(list(patterns))
+            return len(patterns) - 1  # TIMEOUT: nothing printed
+
+        def close(self, force=False):
+            pass
+
+    monkeypatch.setattr(sshclient.pexpect, "spawn", lambda *args, **kwargs: Child())
+    COMMAND = "ssh -p 23722 pi@welland.fpgas.online"
+    with pytest.raises(sshclient.SshUnreachable):
+        sshclient.log_in_with_the_printed_command(COMMAND, [], tmp_path / "kh", timeout=1)
+    assert sshclient._SSH_PASSWORD_PROMPT in seen[0]
+    assert sshclient._PASSWORD_PROMPT not in seen[0]
