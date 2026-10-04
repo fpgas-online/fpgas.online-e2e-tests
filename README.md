@@ -92,6 +92,14 @@ costs nothing, so it stays. What it does, in plain terms:
   hide a board whose picture is dead.
 - **A skip never hides a failure**: if the test had already recorded evidence
   that did not hold, it fails instead of skipping.
+- The cursor is never read by OCR. It is found in the screenshot (xterm's
+  filled block, or the hollow outline when the terminal is unfocused) and
+  painted out first; a cursor that blinks is looked for again. Ink in the cell
+  just left of it is a typed character even if OCR dropped it, so that line is
+  busy. If typed text touches the cursor so that no separate block is found,
+  text that reads the same in every look, on the last prompt row with nothing
+  under it that reads as a fault, is a visitor (a skip quoting the screen);
+  text that changes between looks is a failure.
 - The tmux status line is ignored. It is the last row and must have the whole
   shape (session number, at least one `<digit>:<name>` window, host, clock);
   a clock at the end of a line is not enough, and a row that reads as a fault
@@ -169,8 +177,11 @@ shows "skipped" in the upload column.
   recognised under whatever hostname it has that day. A disruptive action on a
   protected device is refused with a failure naming its label and reason; in
   the audit its upload and power cycle cells fail with the same words.
-- If the registry cannot be read, or a named board is not in it, its identity
-  is unknown, and the disruptive action fails rather than going ahead.
+- The registry is read afresh immediately before each disruptive action (one
+  GET), not once per run, so a device that changed hostname since the run began
+  is judged by what it is now. If it cannot be read, or a named board is not
+  in it, its identity is unknown, and the disruptive action fails rather than
+  going ahead.
 - Tests that only do what a visitor does are unaffected by the protected list.
 
 ## How it decides something works
