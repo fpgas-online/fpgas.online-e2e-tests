@@ -123,6 +123,10 @@ def poe_status_is_reported(session: BoardSession, evidence: EvidenceLog, timeout
     return state
 
 
+class SshNoLogin(AssertionError):
+    """The ssh command the page prints gave no login. Nothing else: not a wrong board, not a page that failed."""
+
+
 def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: Path, timeout: float = 30.0) -> None:
     """The ssh command the page prints, run in a real ssh client, reaches the board."""
     board, page = session.board, session.page
@@ -135,7 +139,12 @@ def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: 
     command = instructions.ssh_command
     try:
         login = log_in_with_the_printed_command(command, ["hostname"], known_hosts, timeout=timeout)
-    except (SshFailed, ValueError) as exc:
+    except SshFailed as exc:
+        evidence.ground_truth(
+            f"`{command}` logs in with the banner's password", False, detail=str(exc), error=SshNoLogin
+        )
+        return
+    except ValueError as exc:  # the page printed something that is not an ssh command: a different failure
         evidence.ground_truth(f"`{command}` logs in with the banner's password", False, detail=str(exc))
         return
     evidence.ground_truth(
