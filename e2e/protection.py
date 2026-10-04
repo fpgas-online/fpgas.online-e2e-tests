@@ -119,26 +119,38 @@ def disruption_refusal(board: Board, registry: dict[str, str], protected: dict[s
     return ""
 
 
-class DisruptionGuard:
-    """Reads the registry once, when first asked, and answers `refusal(board)` from it.
+def parse_boards_option(raw: str) -> set[str]:
+    """The hostnames in --boards (comma separated, spaces around the commas allowed).
 
-    A registry that cannot be read refuses every board, with the reason,
-    rather than raising: the caller reports it against the board it was about.
+    "" is the option not given: no restriction. Anything else that names no
+    board (" ", ",") is an error, never a quiet "no restriction".
+    """
+    if raw == "":
+        return set()
+    names = {name.strip() for name in raw.split(",") if name.strip()}
+    if not names:
+        raise ValueError(f"--boards {raw!r} names no board; give hostnames separated by commas, or leave it out")
+    return names
+
+
+class DisruptionGuard:
+    """Answers `refusal(board)`, reading the registry afresh on EVERY call.
+
+    A device can change hostname between one disruptive action and the next (a
+    disruptive audit takes minutes per board), so nothing is remembered: each
+    answer is one GET made just now. A registry that cannot be read refuses the
+    board, with the reason, rather than raising: the caller reports it against
+    the board it was about.
     """
 
     def __init__(self, site: Site, fetch: Callable[[str], str] = http_get, protected: dict | None = None):
         self.site = site
         self.fetch = fetch
         self.protected = load_protected() if protected is None else protected
-        self._registry: dict[str, str] | None = None
-        self._unreadable = ""
 
     def refusal(self, board: Board) -> str:
-        if self._registry is None and not self._unreadable:
-            try:
-                self._registry = read_registry(self.site, self.fetch)
-            except RegistryError as exc:
-                self._unreadable = f"{exc}, so the identity of {{}} is unknown and nothing disruptive is done to it"
-        if self._registry is None:
-            return self._unreadable.format(board.hostname)
-        return disruption_refusal(board, self._registry, self.protected)
+        try:
+            registry = read_registry(self.site, self.fetch)
+        except RegistryError as exc:
+            return f"{exc}, so the identity of {board.hostname} is unknown and nothing disruptive is done to it"
+        return disruption_refusal(board, registry, self.protected)

@@ -64,8 +64,9 @@ def test_every_board_at_the_site(
             print(f"[audit] {board.hostname}: {row.check('page').detail}", flush=True)
             continue
         try:
-            refusal = disruption_guard.refusal(board) if disruptive else ""
-            row = audit_board(session, known_hosts, disruptive=disruptive, refusal=refusal)
+            row = audit_board(
+                session, known_hosts, disruptive=disruptive, refusal=lambda board=board: disruption_guard.refusal(board)
+            )
         finally:
             try:
                 session.snapshot(output_dir / f"audit-{site.name}" / f"{board.hostname}.png")

@@ -165,6 +165,23 @@ def _uptime_seconds(terminal, evidence: EvidenceLog, when: str) -> float:
     return seconds
 
 
+class DisruptionRefused(AssertionError):
+    """The board must not be disrupted (a protected device, or an identity that could not be established)."""
+
+
+def require_may_disrupt(session: BoardSession) -> None:
+    """Ask, just now, whether this board may be disrupted; raise DisruptionRefused, doing nothing, if not.
+
+    Called immediately before each disruptive action, so a device that changed
+    hostname since the run began is judged by what it is now.
+    """
+    if session.refusal_check is None:
+        raise DisruptionRefused("refused: no identity check was attached to this board, so nothing disruptive is done")
+    why = session.refusal_check()
+    if why:
+        raise DisruptionRefused(f"refused: {why}")
+
+
 def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -> None:
     """Does "turn it off and on again" actually turn the board off and on again?
 
@@ -194,6 +211,7 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
     # box accumulates and the click itself makes the page re-ask for the PoE
     # state, so without this baseline the status assertion matches text the
     # click produced whether or not the port was ever switched.
+    require_may_disrupt(session)
     baseline = status.text()
     clicked_at = time.monotonic()
     page.click(f"#reset{board.port}")
@@ -321,6 +339,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
     evidence.ground_truth("the camera is live before the upload", live, detail=detail)
     before, before_selector = camera.shot_with_selector()
 
+    require_may_disrupt(session)
     page.set_input_files("#upform input[type=file]", str(bitstream))
     page.click("#upform input[type=submit]")
     try:

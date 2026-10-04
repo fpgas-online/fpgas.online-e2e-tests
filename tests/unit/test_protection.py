@@ -17,6 +17,7 @@ from e2e.protection import (
     RegistryError,
     disruption_refusal,
     load_protected,
+    parse_boards_option,
     parse_registry,
     read_registry,
     require_named_boards,
@@ -119,12 +120,95 @@ def test_an_unreadable_registry_refuses_every_board_with_the_reason():
     assert "could not be read" in why and "connection refused" in why and "pi-sw2-p46" in why
 
 
-def test_the_registry_is_read_once_per_run():
+def test_the_registry_is_read_afresh_for_every_answer():
     reads = []
     guard = DisruptionGuard(SITE, fetch=lambda url: reads.append(url) or FLEET)
     guard.refusal(_board("a"))
     guard.refusal(_board("b"))
-    assert reads == ["https://welland.fpgas.online/fleet/"]
+    assert reads == ["https://welland.fpgas.online/fleet/"] * 2
+
+
+def test_a_device_that_moves_onto_the_named_hostname_between_two_actions_is_refused_the_second_time():
+    """The registry changes mid-run: the protected serial now answers to the hostname that was named."""
+    named = next(h for h, s in parse_registry(FLEET).items() if s != SERIAL)
+    protected_host = _hostname_of(SERIAL)
+    # The protected device and the named board swap hostnames.
+    swapped = FLEET.replace(f">{named}<", ">TMP<").replace(f">{protected_host}<", f">{named}<")
+    moved = swapped.replace(">TMP<", f">{protected_host}<")
+    pages = iter([FLEET, moved])
+    guard = DisruptionGuard(SITE, fetch=lambda _url: next(pages))
+    assert guard.refusal(_board(named)) == ""  # the first action: allowed
+    assert "acorn-holly" in guard.refusal(_board(named))  # the second: the same hostname is now the protected device
+
+
+def test_a_registry_that_fails_on_the_second_action_refuses_it():
+    named = next(h for h, s in parse_registry(FLEET).items() if s != SERIAL)
+    answers = iter([FLEET, OSError("connection reset")])
+
+    def fetch(_url):
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    guard = DisruptionGuard(SITE, fetch=fetch)
+    assert guard.refusal(_board(named)) == ""
+    why = guard.refusal(_board(named))
+    assert "could not be read" in why and "connection reset" in why
+
+
+# -- --boards parsing --------------------------------------------------------------------------------------------------
+
+
+def test_boards_may_have_spaces_around_the_commas():
+    assert parse_boards_option("pi-sw2-p46, pi-sw2-p47 ,  pi-sw2-p48") == {"pi-sw2-p46", "pi-sw2-p47", "pi-sw2-p48"}
+
+
+def test_boards_not_given_is_no_restriction_but_boards_naming_nothing_is_an_error():
+    assert parse_boards_option("") == set()
+    for raw in (" ", ",", " , ,"):
+        with pytest.raises(ValueError, match="names no board"):
+            parse_boards_option(raw)
+
+
+# -- the journeys ask just before they act -----------------------------------------------------------------------------
+
+
+class _Acting:
+    """A session whose page records whether anything was clicked or uploaded."""
+
+    def __init__(self, check):
+        self.refusal_check = check
+
+
+def test_require_may_disrupt_passes_only_when_the_check_answers_nothing():
+    journeys.require_may_disrupt(_Acting(lambda: ""))
+    with pytest.raises(journeys.DisruptionRefused, match="refused: .*acorn-holly"):
+        journeys.require_may_disrupt(_Acting(lambda: "x is the protected device acorn-holly"))
+
+
+def test_a_session_with_no_identity_check_is_refused():
+    with pytest.raises(journeys.DisruptionRefused, match="no identity check"):
+        journeys.require_may_disrupt(_Acting(None))
+
+
+def test_the_check_is_asked_again_each_time():
+    answers = iter(["", "moved onto a protected device"])
+    session = _Acting(lambda: next(answers))
+    journeys.require_may_disrupt(session)
+    with pytest.raises(journeys.DisruptionRefused):
+        journeys.require_may_disrupt(session)
+
+
+@pytest.mark.parametrize(
+    ("name", "action"),
+    [("upload_programs_the_board", "page.set_input_files"), ("reset_power_cycles_the_board", "page.click(f\"#reset")],
+)
+def test_each_disruptive_journey_asks_immediately_before_its_action(name, action):
+    import inspect
+
+    source = inspect.getsource(getattr(journeys, name))
+    assert source.index("require_may_disrupt(session)") < source.index(action)
 
 
 def test_the_registry_is_read_from_the_sites_public_fleet_page():
@@ -165,7 +249,7 @@ class _Session:
     board = Board("pi-sw2-p47", 47, "")
 
 
-def _audit(monkeypatch, **kwargs):
+def _audit(monkeypatch, refusal=None, **kwargs):
     ran = []
 
     def fake(name, *_a, **_k):
@@ -174,11 +258,11 @@ def _audit(monkeypatch, **kwargs):
 
     monkeypatch.setattr(audit, "run_journey", fake)
     monkeypatch.setattr(journeys, "loadable_for", lambda _board: ("top.bit", []))
-    return audit.audit_board(_Session(), None, **kwargs), ran
+    return audit.audit_board(_Session(), None, refusal=refusal, **kwargs), ran
 
 
 def test_a_refused_board_fails_its_disruptive_cells_and_runs_neither(monkeypatch):
-    row, ran = _audit(monkeypatch, disruptive=True, refusal="pi-sw2-p47 is the protected device acorn-holly: x")
+    row, ran = _audit(monkeypatch, disruptive=True, refusal=lambda: "pi-sw2-p47 is the protected device acorn-holly: x")
     assert "upload" not in ran and "power cycle" not in ran and "camera" in ran
     for name in ("upload", "power cycle"):
         check = row.check(name)
@@ -187,12 +271,12 @@ def test_a_refused_board_fails_its_disruptive_cells_and_runs_neither(monkeypatch
 
 
 def test_a_board_that_may_be_disrupted_runs_its_disruptive_cells(monkeypatch):
-    _, ran = _audit(monkeypatch, disruptive=True, refusal="")
+    _, ran = _audit(monkeypatch, disruptive=True, refusal=lambda: "")
     assert "upload" in ran and "power cycle" in ran
 
 
 def test_without_disruptive_a_refusal_changes_nothing_the_cells_stay_skipped(monkeypatch):
-    row, ran = _audit(monkeypatch, disruptive=False, refusal="")
+    row, ran = _audit(monkeypatch, disruptive=False, refusal=lambda: "")
     assert row.check("upload").skipped and "upload" not in ran
 
 
@@ -281,7 +365,9 @@ def test_plain(board_page):
 
 @pytest.mark.disruptive
 def test_disruptive(board_page):
-    board_page()
+    from e2e import journeys
+
+    journeys.require_may_disrupt(board_page())  # the fixture attached the identity check to the session
 """
 
 
@@ -347,3 +433,17 @@ def test_a_non_disruptive_test_may_use_the_protected_board_as_a_visitor_does(pyt
     result, opened = _nested(pytester, f"--boards-for-test={protected}", select="test_plain")
     result.assert_outcomes(passed=1)
     assert opened == [protected]
+
+
+def test_the_audit_asks_again_before_the_second_disruptive_cell(monkeypatch):
+    """The board is fine for the upload and has become a protected device by the time of the power cycle."""
+    answers = iter(["", "pi-sw2-p47 is the protected device acorn-holly: x"])
+    row, ran = _audit(monkeypatch, disruptive=True, refusal=lambda: next(answers))
+    assert "upload" in ran and "power cycle" not in ran
+    assert row.check("power cycle").detail.startswith("refused: ") and not row.check("power cycle").skipped
+
+
+def test_a_disruptive_audit_with_no_identity_check_refuses_both_cells(monkeypatch):
+    row, ran = _audit(monkeypatch, disruptive=True)
+    assert "upload" not in ran and "power cycle" not in ran
+    assert "no identity check" in row.check("upload").detail

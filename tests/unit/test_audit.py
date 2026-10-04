@@ -297,7 +297,8 @@ class _FakeSession:
 def test_the_audit_marks_an_acorns_upload_skipped_with_the_reason_and_never_runs_it(monkeypatch):
     called = []
     _stub_journeys(monkeypatch, called)
-    row = audit_board(_FakeSession(Board("acorn-host", 1, "Acorn CLE-215+")), known_hosts=None, disruptive=True)
+    session = _FakeSession(Board("acorn-host", 1, "Acorn CLE-215+"))
+    row = audit_board(session, known_hosts=None, disruptive=True, refusal=lambda: "")
     upload = row.check("upload")
     assert upload.skipped and not upload.passed
     assert "acorn" in upload.detail
@@ -323,7 +324,8 @@ def test_without_disruptive_the_upload_and_power_cycle_are_skipped_and_never_run
 def test_with_disruptive_an_arty_runs_both_disruptive_journeys_last(monkeypatch):
     called = []
     _stub_journeys(monkeypatch, called)
-    row = audit_board(_FakeSession(Board("pi-sw1-p2", 2, "Digilent Arty A7-35T")), known_hosts=None, disruptive=True)
+    session = _FakeSession(Board("pi-sw1-p2", 2, "Digilent Arty A7-35T"))
+    row = audit_board(session, known_hosts=None, disruptive=True, refusal=lambda: "")
     assert called[-2:] == ["upload_programs_the_board", "reset_power_cycles_the_board"]
     assert not any(c.skipped for c in row.checks)
 

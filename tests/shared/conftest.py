@@ -61,6 +61,8 @@ def board_page(
                 if refusal:
                     pytest.fail(f"refused: {refusal}", pytrace=False)
             session = open_board(browser, browser_context_args, site, board)
+            if disruptive_test:
+                session.refusal_check = lambda board=board: disruption_guard.refusal(board)
             opened.append(session)
             try:
                 ok, why = _is_working(session)

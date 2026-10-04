@@ -10,7 +10,7 @@ import pytest
 from e2e.audit import NEEDS_DISRUPTIVE
 from e2e.evidence import EvidenceLog
 from e2e.picker import OnDead
-from e2e.protection import DisruptionGuard, require_named_boards
+from e2e.protection import DisruptionGuard, parse_boards_option, require_named_boards
 from e2e.site import Site
 
 
@@ -51,7 +51,7 @@ def pytest_collection_modifyitems(config, items):
     try:
         require_named_boards(
             bool(config.getoption("--disruptive")),
-            {name.strip() for name in config.getoption("--boards").split(",") if name.strip()},
+            parse_boards_option(config.getoption("--boards")),
         )
     except ValueError as exc:
         raise pytest.UsageError(str(exc)) from exc
@@ -89,7 +89,10 @@ def disruptive(pytestconfig) -> bool:
 
 @pytest.fixture(scope="session")
 def boards_wanted(pytestconfig) -> set[str]:
-    return {name.strip() for name in pytestconfig.getoption("--boards").split(",") if name.strip()}
+    try:
+        return parse_boards_option(pytestconfig.getoption("--boards"))
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
 
 
 @pytest.fixture(scope="session")
