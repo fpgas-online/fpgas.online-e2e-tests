@@ -1,7 +1,18 @@
 import datetime as dt
 
-from e2e.audit import COLUMNS, BoardAudit, Check, camera_note, poe_note, render_markdown, render_text, run_journey
+from e2e.audit import (
+    COLUMNS,
+    BoardAudit,
+    Check,
+    camera_note,
+    poe_note,
+    render_markdown,
+    render_text,
+    run_journey,
+    unopened_board_audit,
+)
 from e2e.board import Board
+from e2e.session import open_board
 
 WHEN = dt.datetime(2026, 9, 14, 3, 0, 0, tzinfo=dt.timezone.utc)
 PI7 = Board("pi7", 7, "")
@@ -179,3 +190,62 @@ def test_an_acorn_has_no_bitstream_so_the_audit_marks_its_upload_skipped():
 def test_rendering_zero_rows_does_not_raise():
     assert "0 boards" in render_text("ps1", [], when=WHEN)
     assert "0 boards" in render_markdown("ps1", [], when=WHEN)
+
+
+class _Page:
+    def __init__(self, fail_goto):
+        self.fail_goto = fail_goto
+
+    def on(self, *a, **k):
+        pass
+
+    def goto(self, *a, **k):
+        if self.fail_goto:
+            raise TimeoutError("Page.goto: Timeout 30000ms exceeded.\nCall log: ...")
+
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+class _Context:
+    closed = False
+
+    def __init__(self, fail_goto):
+        self.page = _Page(fail_goto)
+
+    def new_page(self):
+        return self.page
+
+    def close(self):
+        self.closed = True
+
+
+class _Browser:
+    def __init__(self, fail_goto):
+        self.context = _Context(fail_goto)
+
+    def new_context(self, **_):
+        return self.context
+
+
+def test_a_page_that_will_not_open_closes_its_context_and_raises():
+    import pytest
+
+    from e2e.site import Site
+
+    browser = _Browser(fail_goto=True)
+    with pytest.raises(TimeoutError):
+        open_board(browser, {}, Site.from_name("ps1"), PI7)
+    assert browser.context.closed
+
+
+def test_a_board_that_would_not_open_becomes_a_failed_row_quoting_the_exception():
+    row = unopened_board_audit(PI7, TimeoutError("Page.goto: Timeout 30000ms exceeded.\nCall log: ..."))
+    assert row.board is PI7
+    assert [c.name for c in row.checks] == ["page"]
+    page = row.check("page")
+    assert not page.passed and not page.skipped
+    assert "TimeoutError: Page.goto: Timeout 30000ms exceeded." in page.detail
+    assert row.failures == [page]
+    # and it renders, with the reason under the table
+    assert "TimeoutError" in render_text("ps1", [row], when=WHEN)

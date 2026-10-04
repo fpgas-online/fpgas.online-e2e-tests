@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from e2e.audit import audit_board, render_markdown, render_text
+from e2e.audit import audit_board, render_markdown, render_text, unopened_board_audit
 from e2e.session import open_board
 from e2e.site import parse_boards
 
@@ -43,7 +43,13 @@ def test_every_board_at_the_site(
     rows = []
     print(f"\n[audit] {site.name}: {len(boards)} boards", flush=True)
     for board in boards:
-        session = open_board(browser, browser_context_args, site, board)
+        try:
+            session = open_board(browser, browser_context_args, site, board)
+        except Exception as exc:  # noqa: BLE001 - a page that will not open is this board's row, not the run's end
+            row = unopened_board_audit(board, exc)
+            rows.append(row)
+            print(f"[audit] {board.hostname}: {row.check('page').detail}", flush=True)
+            continue
         try:
             row = audit_board(session, known_hosts, quick=quick)
         finally:

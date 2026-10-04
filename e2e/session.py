@@ -47,10 +47,15 @@ def open_board(browser, context_args: dict, site: Site, board: Board) -> BoardSe
     not depend on which board came before it.
     """
     context = browser.new_context(**context_args)
-    page = context.new_page()
-    terminal = WebTerminal(page)
-    terminal.attach()
-    page.goto(site.url(board.page_path), wait_until="domcontentloaded")
+    try:
+        page = context.new_page()
+        terminal = WebTerminal(page)
+        terminal.attach()
+        page.goto(site.url(board.page_path), wait_until="domcontentloaded")
+    except BaseException:
+        # A page that will not open must not leave its context running.
+        context.close()
+        raise
     return BoardSession(
         board=board,
         page=page,

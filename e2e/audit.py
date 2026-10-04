@@ -106,6 +106,17 @@ def run_journey(
     return Check(name=name, passed=passed, detail=detail, note=note, seconds=time.monotonic() - started)
 
 
+def unopened_board_audit(board: Board, exc: BaseException) -> BoardAudit:
+    """The row for a board whose page would not even open: one failed cell quoting why.
+
+    The audit goes on to the next board and still writes its report; "the
+    tool could not open the page" is a finding about that board, not a reason
+    to lose the other boards' rows.
+    """
+    reason = f"{type(exc).__name__}: {str(exc).splitlines()[0][:300] if str(exc) else ''}"
+    return BoardAudit(board, [Check(name="page", passed=False, detail=f"the board page did not open: {reason}")])
+
+
 DISRUPTIVE = ("upload", "power cycle")
 
 
