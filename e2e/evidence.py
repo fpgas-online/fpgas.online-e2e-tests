@@ -42,11 +42,28 @@ class EvidenceLog:
         """Assert something the site says about itself."""
         self._record(EvidenceKind.CLAIM, description, condition, detail)
 
-    def ground_truth(self, description: str, condition: object, detail: str = "") -> None:
-        """Assert something observed outside the web application."""
-        self._record(EvidenceKind.GROUND_TRUTH, description, condition, detail)
+    def ground_truth(
+        self,
+        description: str,
+        condition: object,
+        detail: str = "",
+        error: type[AssertionError] = AssertionError,
+    ) -> None:
+        """Assert something observed outside the web application.
 
-    def _record(self, kind: EvidenceKind, description: str, condition: object, detail: str) -> None:
+        `error` is what is raised when it does not hold: a subclass of
+        AssertionError lets a caller tell this failure from every other.
+        """
+        self._record(EvidenceKind.GROUND_TRUTH, description, condition, detail, error)
+
+    def _record(
+        self,
+        kind: EvidenceKind,
+        description: str,
+        condition: object,
+        detail: str,
+        error: type[AssertionError] = AssertionError,
+    ) -> None:
         passed = bool(condition)
         self.entries.append(Evidence(kind, description, detail, passed))
         if passed:
@@ -60,7 +77,7 @@ class EvidenceLog:
         # raises: once an observation of reality has failed, carrying on
         # proves nothing.
         if kind is EvidenceKind.GROUND_TRUTH:
-            raise AssertionError(self._message(kind, description, detail))
+            raise error(self._message(kind, description, detail))
 
     @staticmethod
     def _message(kind: EvidenceKind, description: str, detail: str) -> str:

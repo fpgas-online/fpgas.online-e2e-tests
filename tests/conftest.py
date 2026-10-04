@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from e2e import known_failures
 from e2e.audit import NEEDS_DISRUPTIVE
 from e2e.evidence import EvidenceLog
 from e2e.picker import OnDead
@@ -40,7 +41,7 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Skip every test marked `disruptive` unless --disruptive was given.
+    """Mark known failures (e2e/known_failures.py); skip every test marked `disruptive` unless --disruptive was given.
 
     The one place the option gates tests, so a new disruptive test needs only
     the marker. Skipping at collection means the test never starts: it does
@@ -55,6 +56,7 @@ def pytest_collection_modifyitems(config, items):
         )
     except ValueError as exc:
         raise pytest.UsageError(str(exc)) from exc
+    known_failures.apply(items, config.getoption("--site"))
     if config.getoption("--disruptive"):
         return
     skip = pytest.mark.skip(reason=NEEDS_DISRUPTIVE)
