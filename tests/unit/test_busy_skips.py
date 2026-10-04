@@ -112,10 +112,16 @@ class Terminal:
         raise {raises}
 
 
+class Camera:
+    def check_live_with_recovery(self, timeout=60):
+        return {camera_live}, "clock did not advance"
+
+
 class Session:
     def __init__(self, board):
         self.board = board
         self.terminal = Terminal()
+        self.camera = Camera()
 
     def snapshot(self, path):
         pass
@@ -156,8 +162,10 @@ def output_dir(tmp_path): return tmp_path
 '''
 
 
-def _nested(pytester, raises, preload="pass"):
-    pytester.makeconftest(CONFTEST.format(index=str(INDEX_HTML), raises=raises, preload=preload))
+def _nested(pytester, raises, preload="pass", camera_live=True):
+    pytester.makeconftest(
+        CONFTEST.format(index=str(INDEX_HTML), raises=raises, preload=preload, camera_live=camera_live)
+    )
     pytester.makepyfile("def test_it(board_page):\n    board_page()\n")
     return pytester.runpytest("-p", "no:playwright", "-rs")
 
@@ -190,3 +198,17 @@ def test_a_broken_terminal_is_never_turned_into_a_skip(monkeypatch, run):
 
     with pytest.raises(TerminalLost):
         run(monkeypatch, TerminalLost("the shell's line is broken ('Stale file handle')"))
+
+
+def test_a_dead_camera_fails_even_when_the_terminal_is_busy(pytester):
+    """The camera is checked first, so a busy terminal cannot hide a board with no picture."""
+    result = _nested(
+        pytester, "TerminalBusy('a visitor is using the terminal: it is typing')", camera_live=False
+    )
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*no usable board*", "*the camera feed never went live*"])
+
+
+def test_a_live_camera_and_a_busy_terminal_still_skip(pytester):
+    result = _nested(pytester, "TerminalBusy('a visitor is using the terminal: it is typing')", camera_live=True)
+    result.assert_outcomes(skipped=1)

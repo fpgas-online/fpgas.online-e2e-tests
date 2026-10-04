@@ -69,22 +69,27 @@ def board_page(
         raise AssertionError("no usable board.\n  " + "\n  ".join(problems) + f"\n(--on-dead={on_dead.value})")
 
     def _is_working(session) -> tuple[bool, str]:
-        """The glance a person gives a board before deciding to use it."""
-        try:
-            session.terminal.wait_for_prompt(timeout=45)
-        except TimeoutError as exc:
-            return False, f"the web terminal never reached a prompt ({exc})"
+        """The glance a person gives a board before deciding to use it.
+
+        The camera first, then the terminal: a visitor on the terminal skips
+        the test (TerminalBusy propagates), and that must never be reachable
+        for a board whose picture is dead.
+        """
         # Wait for the picture rather than sampling it once. video.js has to
         # fetch the playlist, buffer a few one-second segments and start
         # decoding; a single sample taken the moment the terminal connects
         # catches readyState 0 every time and calls a healthy board dead.
         try:
             live, detail = session.camera.check_live_with_recovery(timeout=45)
-            return live, (
-                f"the camera feed is live ({detail})" if live else f"the camera feed never went live ({detail})"
-            )
         except Exception as exc:  # noqa: BLE001
             return False, f"the camera could not be read ({exc})"
+        if not live:
+            return False, f"the camera feed never went live ({detail})"
+        try:
+            session.terminal.wait_for_prompt(timeout=45)
+        except TimeoutError as exc:
+            return False, f"the web terminal never reached a prompt ({exc})"
+        return True, f"the camera feed is live ({detail})"
 
     yield _open
 
