@@ -21,7 +21,14 @@ import pexpect
 
 from e2e import ocr
 from e2e.sshbanner import password_from_banner
-from e2e.terminal import DEFAULT_PROMPT, TerminalBusy, at_a_prompt, strip_prompt_and_echo, text_after_last_prompt
+from e2e.terminal import (
+    DEFAULT_PROMPT,
+    TerminalBusy,
+    WebTerminal,
+    at_a_prompt,
+    strip_prompt_and_echo,
+    text_after_last_prompt,
+)
 
 _HOST_KEY_QUESTION = r"\(yes/no(?:/\[fingerprint\])?\)\?"
 _PASSWORD_PROMPT = r"[Pp]assword:"
@@ -82,10 +89,7 @@ def refuse_if_line_busy(login_text: str) -> None:
     """
     typed = text_after_last_prompt(login_text)
     if typed:
-        raise TerminalBusy(
-            f"not typing: the shared shell's prompt line is not empty, someone has {typed!r} on it; "
-            "typing would add to it and press Enter"
-        )
+        raise TerminalBusy(WebTerminal.busy_reason(typed))
 
 
 def _read_until(child, done, timeout: float, quiet: float = 1.0) -> str:

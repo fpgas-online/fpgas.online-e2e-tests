@@ -88,24 +88,51 @@ def describe_busy_shell(screen: str) -> str:
 
 
 class TerminalBusy(RuntimeError):
-    """The shared terminal is not free to type into: someone's command is on the line."""
+    """A visitor is using the shared terminal: their text is on the prompt line.
+
+    Nothing was typed. The message is the reason a test is skipped with, so it
+    says so in the words a person reads in the summary.
+    """
+
+
+class TerminalLost(RuntimeError):
+    """No prompt is visible where one was expected: the terminal is dead, not busy."""
 
 
 _PROMPT_LINE = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#](?:[ \t]+(?P<typed>\S.*?))?[ \t]*$")
+# tmux's status line, drawn on the bottom row: "[default-10:bash*   pi2 02:28pm".
+_TMUX_STATUS = re.compile(r"^\[[\w.-]+:\S+\s+[\w.-]+\s+\d{1,2}:\d{2}\s*[ap]m", re.IGNORECASE)
+# The one form the cursor takes after a prompt as OCR reads it: xterm's filled
+# block comes out as "[]" (captured from ps1 pi7 on 2026-09-13, "$ []"). It is
+# the only thing allowed after the prompt on a line counted as free. A lone
+# "|", "_", "[" or "l" is just as likely a visitor's first keystroke, and
+# a command typed over theirs is worse than a skipped test.
+CURSOR_TOKEN = "[]"
 
 
 def text_after_last_prompt(screen: str) -> str | None:
-    """What stands after the shell prompt on the last prompt line of the screen.
+    """What a visitor has put on the shell's current line, read from the screen.
 
-    "" is a free line, text is a command someone has typed (half-typed, or
-    running), and None means no prompt line is visible at all (a full-screen
-    program, a command that has scrolled the prompt away, a login form).
-    The cursor block OCR reads as "[]" is not text.
+    "" means free: the last prompt line has nothing after it, or exactly the
+    cursor token (CURSOR_TOKEN), and nothing but tmux's status line is below
+    it. Anything else is returned as text and means busy: characters after
+    the prompt, or lines under the last prompt (a wrapped command, the
+    output of a running one, `>>> import os` in a REPL). None means no prompt
+    line is visible at all, which is a dead terminal and not a busy one.
     """
-    for line in reversed(without_cursor(ocr.strip_ansi(screen)).splitlines()):
-        match = _PROMPT_LINE.search(line.strip())
-        if match is not None:
-            return match.group("typed") or ""
+    below: list[str] = []
+    for raw in reversed(ocr.strip_ansi(screen).splitlines()):
+        line = raw.strip()
+        if not line or _TMUX_STATUS.match(line):
+            continue
+        match = _PROMPT_LINE.search(line)
+        if match is None:
+            below.append(line)
+            continue
+        typed = match.group("typed") or ""
+        if typed == CURSOR_TOKEN:
+            typed = ""
+        return " ".join([typed, *reversed(below)]).strip()
     return None
 
 
@@ -255,6 +282,9 @@ class WebTerminal:
                     return
                 next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
+        typed = text_after_last_prompt(self._last_screen)
+        if typed:
+            raise TerminalBusy(self.busy_reason(typed))
         raise TimeoutError(
             f"no shell prompt within {timeout}s; {describe_busy_shell(self._last_screen)}"
             f"the screen reads {ocr.normalise(self._last_screen)[-600:]!r} "
@@ -361,40 +391,46 @@ class WebTerminal:
         frame.locator(".xterm-screen").click()
         return frame
 
+    @staticmethod
+    def busy_reason(typed: str) -> str:
+        return f"a visitor is using the terminal: {typed!r} is on the shell's line, so nothing was typed"
+
     def refuse_if_busy(self) -> None:
-        """Raise TerminalBusy unless the prompt line is empty, so typing cannot touch anyone's command.
+        """Type nothing unless the shell's line is free: raise TerminalBusy or TerminalLost.
 
         The terminal is one tmux session shared with every visitor to the
         board. Typing appends to whatever is on the line and Enter runs the
         lot, so a visitor's half-typed `sudo apt install x` would be executed
         with our text glued onto it. Looking at the screen costs nothing.
-        (A visitor who starts typing in the instant between this look and the
-        keystrokes cannot be detected; the window is a few milliseconds.)
+
+        Busy (text on the line, or under the last prompt) is a visitor.
+        No prompt line at all is TerminalLost, a failure quoting the screen,
+        whether or not a prompt was seen a moment ago: a terminal that lost
+        its prompt is not one a visitor is typing on. (A visitor who starts
+        typing in the few milliseconds between this look and the keystrokes
+        cannot be detected.)
         """
         screen = self._ocr_visible()
         typed = text_after_last_prompt(screen)
         if typed is None:
-            raise TerminalBusy(
-                "not typing: no shell prompt line is visible, so the terminal may be in use; "
-                f"the screen reads {ocr.normalise(screen)[-300:]!r}"
+            raise TerminalLost(
+                f"no shell prompt line is visible, so nothing was typed; the screen reads "
+                f"{ocr.normalise(screen)[-300:]!r}"
             )
         if typed:
-            raise TerminalBusy(
-                f"not typing: the prompt line is not empty, someone has {typed!r} on it; "
-                "typing would add to it and press Enter"
-            )
+            raise TerminalBusy(self.busy_reason(typed))
 
     def run(self, command: str, timeout: float = 30.0, settle: float = 1.5) -> TerminalOutput:
         """Type a command, wait for the prompt, and read the output three ways.
 
-        Raises TerminalBusy, typing nothing, if the prompt line is not empty
-        (see refuse_if_busy). Raises TimeoutError if the prompt does not come back: a command that
+        Raises TerminalBusy or TerminalLost, typing nothing, unless the
+        shell's line is free (see refuse_if_busy). Raises TimeoutError if the prompt does not come back: a command that
         is still running is not a command whose output can be read, and
         typing the next one into it would feed a hung process.
         """
         self.wait_for_terminal()
-        self.refuse_if_busy()
-        self._focus()
+        self._focus()  # a click inside the terminal: types nothing, and the cursor then draws as it does for a person
+        self.refuse_if_busy()  # immediately before the keystrokes
         mark = len(self._frames)
         self.page.keyboard.type(command)
         self.page.keyboard.press("Enter")

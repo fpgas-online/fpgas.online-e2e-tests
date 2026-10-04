@@ -3,6 +3,7 @@ import pytest
 from e2e.terminal import (
     DEFAULT_PROMPT,
     TerminalBusy,
+    TerminalLost,
     TerminalOutput,
     WebTerminal,
     at_a_prompt,
@@ -351,13 +352,56 @@ def test_run_types_nothing_when_someone_has_a_half_typed_command_on_the_line():
     assert page.keyboard.pressed == []
 
 
-def test_run_types_nothing_when_no_prompt_line_is_visible():
+def test_run_types_nothing_and_fails_when_no_prompt_line_is_visible():
+    """No prompt at all is a dead terminal, not a visitor: a failure quoting the screen."""
     page, term = _ready_terminal("Reading package lists...\nBuilding dependency tree...\n")
 
-    with pytest.raises(TerminalBusy, match="no shell prompt line is visible"):
+    with pytest.raises(TerminalLost, match="Building dependency tree") as caught:
         term.run("hostname", settle=0)
 
+    assert not isinstance(caught.value, TerminalBusy)
     assert page.keyboard.pressed == []
+
+
+def test_a_prompt_seen_moments_ago_that_is_then_gone_is_a_failure_not_a_skip():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ []\n")
+    term.wait_for_prompt(timeout=2.0)  # the prompt is there
+
+    term._ocr_visible = lambda **_: "Authentication failed.\n"  # and then it is not
+
+    with pytest.raises(TerminalLost, match="Authentication failed"):
+        term.run("hostname", settle=0)
+    assert page.keyboard.pressed == []
+
+
+def test_run_focuses_the_terminal_before_looking_and_looks_before_typing():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ []\n")
+    order = []
+    term._focus = lambda: order.append("focus")
+    term._ocr_visible = lambda **_: order.append("look") or "03:26:04 pi@pi7:~ $ []\n"
+    page.keyboard.type = lambda text: order.append("type")
+
+    term.run("hostname", settle=0)
+
+    assert order[:3] == ["focus", "look", "type"]
+
+
+def test_wait_for_prompt_says_busy_when_the_only_prompt_line_has_text_after_it():
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="03:26:04 pi@pi7:~ $ sudo apt install pipx\n")
+
+    with pytest.raises(TerminalBusy, match="a visitor is using the terminal: 'sudo apt install pipx'"):
+        term.wait_for_prompt(timeout=0.5)
+    assert page.keyboard.pressed == []
+
+
+def test_wait_for_prompt_with_no_prompt_line_at_all_is_still_a_timeout():
+    """Dead stays a failure exactly as before."""
+    term = _terminal(_FakePage(), frames=[], screen="Authentication failed.\n")
+
+    with pytest.raises(TimeoutError) as caught:
+        term.wait_for_prompt(timeout=0.5)
+    assert not isinstance(caught.value, TerminalBusy)
 
 
 def test_exit_status_is_refused_too_when_the_line_is_not_empty():
@@ -372,16 +416,32 @@ def test_exit_status_is_refused_too_when_the_line_is_not_empty():
 @pytest.mark.parametrize(
     ("screen", "expected"),
     [
+        # free: nothing after the prompt, or exactly the cursor block OCR reads as "[]"
         ("03:26:04 pi@pi7:~ $ \n", ""),
         ("03:26:04 pi@pi7:~ $ []\n", ""),
         ("03:26:04 pi@pi7:~ $\n", ""),
         ("03:26:04 pi@pi7:~ # \n", ""),
+        ("03:26:04 pi@pi7:~ $ []\n[default-10:bash*   pi7 02:28pm\n", ""),
+        # a single stray character is a visitor's first keystroke, never a cursor
+        ("03:26:04 pi@pi7:~ $ |\n", "|"),
+        ("03:26:04 pi@pi7:~ $ _\n", "_"),
+        ("03:26:04 pi@pi7:~ $ [\n", "["),
+        ("03:26:04 pi@pi7:~ $ ]\n", "]"),
+        ("03:26:04 pi@pi7:~ $ l\n", "l"),
+        ("03:26:04 pi@pi7:~ $ [][]\n", "[][]"),
+        ("03:26:04 pi@pi7:~ $ ls []\n", "ls []"),
         ("03:26:04 pi@pi7:~ $ echo $HOME\n", "echo $HOME"),
         # the last prompt wins, earlier commands in the history do not count
-        ("03:24:27 pi@pi7:~ $ echo hi\nhi\n03:26:04 pi@pi7:~ $ \n", ""),
-        ("03:24:27 pi@pi7:~ $ \n03:26:04 pi@pi7:~ $ vi x\n", "vi x"),
+        ("03:24:27 pi@pi7:~ $ echo hi\nhi\n03:26:04 pi@pi7:~ $ []\n", ""),
+        ("03:24:27 pi@pi7:~ $ []\n03:26:04 pi@pi7:~ $ vi x\n", "vi x"),
         ("\x1b[32mpi@pi7\x1b[m:~ $ \x1b[Kls\n", "ls"),
+        # a line under the last prompt is not free: a REPL, running output, a wrapped command
+        ("03:26:04 pi@pi7:~ $ []\n>>> import os\n", ">>> import os"),
+        ("03:26:04 pi@pi7:~/a/very/long/path $ []\nsudo apt install pipx\n", "sudo apt install pipx"),
+        ("03:26:04 pi@pi7:~ $ sleep 99\nstill going\n", "sleep 99 still going"),
+        # no prompt line at all
         ("no prompt here\n", None),
+        (">>> import os\n", None),
         ("", None),
     ],
 )
