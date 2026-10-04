@@ -103,6 +103,15 @@ class CameraNotShown(RuntimeError):
     """No player element for this board is on screen; the message says what was found and in what state."""
 
 
+class PlayerSwitched(RuntimeError):
+    """The page changed which player is displayed while a check was comparing shots.
+
+    The WHEP and video.js elements differ in size, letterboxing and delay (HLS
+    is seconds behind), so a shot from one compared with a shot from the other
+    reports a change that did not happen.
+    """
+
+
 class Camera:
     """The picture on a board page, whichever player is showing it.
 
@@ -146,9 +155,29 @@ class Camera:
                 found.append(f"{what} ({selector}): in the page but not visible")
         raise CameraNotShown(f"no camera picture is displayed; found {'; '.join(found)}")
 
+    def shot_with_selector(self) -> tuple[Image.Image, str]:
+        """A screenshot of the displayed video element as rendered, and the selector it was taken from.
+
+        Anything that compares shots takes them with this and requires the same
+        selector throughout.
+        """
+        selector = self.video_selector()
+        return Image.open(io.BytesIO(self.page.locator(selector).screenshot())), selector
+
     def shot(self) -> Image.Image:
-        """A screenshot of the video element as rendered."""
-        return Image.open(io.BytesIO(self.page.locator(self.video_selector()).screenshot()))
+        """A screenshot of the displayed video element as rendered."""
+        return self.shot_with_selector()[0]
+
+    def _sample(self, count: int, pause: float) -> list[tuple[Image.Image, str]]:
+        """`count` shots `pause` apart, all from one player: retaken once if the page switched players between them."""
+        for _ in range(2):
+            taken = [self.shot_with_selector()]
+            for _ in range(count - 1):
+                time.sleep(pause)
+                taken.append(self.shot_with_selector())
+            if len({selector for _, selector in taken}) == 1:
+                return taken
+        raise PlayerSwitched(f"player switched mid-check, twice running: shots came from {[sel for _, sel in taken]}")
 
     def clock(self) -> str | None:
         """The clock the Pi burns into the picture, or None if it cannot be read."""
@@ -201,10 +230,7 @@ class Camera:
         The digits go into the detail when they can be read, and a readable
         clock that stands still while the pixels move is reported too.
         """
-        shots = [self.shot()]
-        for _ in range(2):
-            time.sleep(gap / 2)
-            shots.append(self.shot())
+        shots = [shot for shot, _ in self._sample(3, gap / 2)]
         ticks = [changed_fraction(a, b, region=CLOCK_REGION) for a, b in zip(shots, shots[1:])]
         live = all(tick > TICK for tick in ticks)
         first, second = (ocr.read_clock(crop_fraction(s, *CLOCK_REGION)) for s in (shots[0], shots[-1]))
@@ -217,9 +243,20 @@ class Camera:
         return live, detail
 
     def wait_for_change(
-        self, before: Image.Image, threshold: float, timeout: float, gap: float = 2.0, region: tuple = PICTURE_REGION
+        self,
+        before: Image.Image,
+        before_selector: str,
+        threshold: float,
+        timeout: float,
+        gap: float = 2.0,
+        region: tuple = PICTURE_REGION,
     ) -> tuple[bool, str]:
         """Watch until the picture differs from `before`, or give up.
+
+        `before_selector` is the selector `before` was taken from
+        (shot_with_selector). The baseline predates whatever the caller did, so
+        it cannot be retaken: if the page switches players, this raises
+        PlayerSwitched rather than compare shots of two different elements.
 
         The feed runs about a minute behind the board, so a shot taken the
         moment the FPGA is programmed still shows the old design. A person
@@ -228,7 +265,12 @@ class Camera:
         deadline = time.monotonic() + timeout
         peak = 0.0
         while time.monotonic() < deadline:
-            fraction = changed_fraction(before, self.shot(), region=region)
+            current, selector = self.shot_with_selector()
+            if selector != before_selector:
+                raise PlayerSwitched(
+                    f"player switched mid-check: the baseline came from {before_selector}, this shot from {selector}"
+                )
+            fraction = changed_fraction(before, current, region=region)
             peak = max(peak, fraction)
             if fraction > threshold:
                 return True, f"{fraction:.4%} of the picture changed (threshold {threshold:.2%})"
@@ -246,14 +288,24 @@ class Camera:
         is not a frozen design.
         """
         seen = []
-        previous = self.shot()
+        switches = 0
+        previous, previous_selector = self.shot_with_selector()
         for _ in range(pairs):
             time.sleep(gap)
-            current = self.shot()
+            current, selector = self.shot_with_selector()
+            if selector != previous_selector:
+                # The baseline is only seconds old, so retake it from the new player, once.
+                switches += 1
+                if switches > 1:
+                    raise PlayerSwitched("player switched mid-check, twice: no two shots of one player to compare")
+                previous, previous_selector = current, selector
+                continue
             seen.append(changed_fraction(previous, current, region=region))
             previous = current
             if seen[-1] > threshold:
                 break
+        if not seen:
+            raise PlayerSwitched("player switched mid-check: no two shots of one player to compare")
         moved = max(seen)
         readings = ", ".join(f"{s:.4%}" for s in seen)
         return moved > threshold, f"consecutive shots {gap}s apart differed by {readings} (threshold {threshold:.2%})"
@@ -320,8 +372,12 @@ class Camera:
         seen: list[str | None] = []
         run: list[str] = []  # consecutive identical readable readings
         shots: list = []  # the shots behind `run`
+        last_selector = None
         while time.monotonic() < deadline:
-            shot = self.shot()
+            shot, selector = self.shot_with_selector()
+            if selector != last_selector:
+                run, shots = [], []  # shots of two different players are not one stuck picture
+                last_selector = selector
             try:
                 reading = ocr.read_clock(crop_fraction(shot, *CLOCK_REGION))
             except Exception:  # noqa: BLE001 - an unreadable picture is a reading too
@@ -388,6 +444,11 @@ class Camera:
         while time.monotonic() < deadline:
             try:
                 live, detail = self.is_live(gap=gap)
+            except (CameraNotShown, PlayerSwitched) as exc:
+                if not want_live:
+                    # "no player displayed" is not "the board stopped sending video".
+                    raise
+                live, detail = False, f"could not read the picture: {exc}"
             except Exception as exc:  # noqa: BLE001 - a dead player raises in many ways
                 live, detail = False, f"could not read the picture: {exc}"
             if live == want_live:

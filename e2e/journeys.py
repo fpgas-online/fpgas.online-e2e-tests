@@ -319,7 +319,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
 
     live, detail = camera.check_live_with_recovery(timeout=60)
     evidence.ground_truth("the camera is live before the upload", live, detail=detail)
-    before = camera.shot()
+    before, before_selector = camera.shot_with_selector()
 
     page.set_input_files("#upform input[type=file]", str(bitstream))
     page.click("#upform input[type=submit]")
@@ -371,7 +371,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
 
     # The feed runs about a minute behind, so keep watching rather than
     # comparing one shot taken the moment programming finished.
-    changed, detail = camera.wait_for_change(before, threshold=CHANGED, timeout=120)
+    changed, detail = camera.wait_for_change(before, before_selector, threshold=CHANGED, timeout=120)
     evidence.ground_truth("the board looks different from before the upload", changed, detail=detail)
 
     counting, detail = camera.keeps_changing(threshold=STILL_RUNNING)
