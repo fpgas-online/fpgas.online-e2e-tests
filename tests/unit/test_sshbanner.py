@@ -10,10 +10,10 @@ ssh -p 21622 pi@welland.fpgas.online
 scp -P 21622 * pi@welland.fpgas.online:Uploads
 """
 
-# Captured from ps1.fpgas.online:10222 on 2026-09-12 via paramiko's
-# Transport.get_banner(). OpenSSH sends this during authentication
-# (SSH_MSG_USERAUTH_BANNER), so it is what a real ssh client prints just before
-# prompting for a password -- and here it IS the password, nothing else.
+# Captured from ps1.fpgas.online:10222 on 2026-09-12. OpenSSH sends this
+# during authentication (SSH_MSG_USERAUTH_BANNER), so it is what a real ssh
+# client prints just before prompting for a password -- and here it IS the
+# password, nothing else. Confirmed 2026-09-14 with the real client on pi7.
 REAL_BANNER = "ship7ohT\n"
 
 

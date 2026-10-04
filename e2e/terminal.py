@@ -19,6 +19,7 @@ Input is always real keystrokes.
 
 from __future__ import annotations
 
+import difflib
 import io
 import re
 import time
@@ -65,6 +66,27 @@ def without_cursor(text: str) -> str:
     return _CURSOR.sub("", text)
 
 
+_PROMPT_THEN_TEXT = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#][ \t]+(?P<typed>\S[^\r\n]*)$")
+
+
+def describe_busy_shell(screen: str) -> str:
+    """Why there is no prompt, when the last prompt on screen has text after it.
+
+    In a shared tmux session that is what another person's half-typed
+    command looks like, or a command still running. Either way the terminal
+    is not free, and a person who sees "$ sudo apt install pipx" sitting
+    there knows exactly why. The error should say so instead of dumping
+    escape codes.
+    """
+    lines = [line for line in without_cursor(ocr.strip_ansi(screen)).splitlines() if line.strip()]
+    if not lines:
+        return ""
+    match = _PROMPT_THEN_TEXT.search(lines[-1].strip())
+    if match is None:
+        return ""
+    return f"the last prompt has a command after it that has not returned: {match.group('typed')!r}; "
+
+
 def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
     """Has the shell printed a prompt anywhere in this output?
 
@@ -74,12 +96,38 @@ def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
     return re.search(prompt, ocr.strip_ansi(text), re.MULTILINE) is not None
 
 
+def _echoes(line: str, command: str) -> bool:
+    """Does this line carry the typed command? Exactly, or as OCR renders it."""
+    wanted = ocr.normalise(command)
+    seen = ocr.normalise(line)
+    if wanted in seen:
+        return True
+    # OCR drops or bends a character or two. The runs it got right, taken
+    # in order and ignoring single stray characters, have to cover most of
+    # the command -- not a word that happens to recur, and never a command
+    # too short for the question to mean anything.
+    if len(wanted) < 4:
+        return False
+    blocks = difflib.SequenceMatcher(None, seen, wanted).get_matching_blocks()
+    return sum(b.size for b in blocks if b.size >= 2) >= 0.75 * len(wanted)
+
+
 def strip_prompt_and_echo(text: str, command: str, prompt: str = DEFAULT_PROMPT) -> str:
-    """Drop the echoed command and the prompt the shell printed afterwards."""
+    """What the command printed: after its echo, before the prompt that followed.
+
+    Cut at the *last* line that echoes the command, not the first: the screen
+    readings are the whole viewport, and it holds the prompts and echoes of
+    every earlier command too. Left in, they let a needle pass on the screen
+    side without the command having printed anything -- the hostname sits in
+    every prompt, "up" sits in the echo of `uptime -p` -- and the three-way
+    agreement collapses to the WebSocket alone.
+    """
     body = ocr.strip_ansi(text)
     lines = [line.rstrip("\r") for line in body.split("\n")]
-    if lines and command.strip() and command.strip() in lines[0]:
-        lines = lines[1:]
+    if command.strip():
+        echoed = [i for i, line in enumerate(lines) if _echoes(line, command)]
+        if echoed:
+            lines = lines[echoed[-1] + 1 :]
     while lines and re.search(prompt, lines[-1], re.MULTILINE):
         lines = lines[:-1]
     return "\n".join(lines).strip()
@@ -98,12 +146,19 @@ class TerminalOutput:
         """The canonical reading. Exact, but only trustworthy once `shows` agrees."""
         return self.websocket
 
-    def shows(self, needle: str) -> tuple[bool, str]:
-        """True when `needle` is visible in all three readings.
+    def lines(self) -> list[str]:
+        """The output as lines, for a check that wants a whole line and not a substring."""
+        return [line.strip() for line in self.websocket.splitlines() if line.strip()]
 
-        The websocket and clipboard must contain it after normalisation. OCR is
-        allowed to have misread characters, so it passes if it contains the
-        needle, or if the whole OCR reading resembles the websocket reading.
+    def shows(self, needle: str) -> tuple[bool, str]:
+        """True when `needle` is visible in all three readings of the command's output.
+
+        Every reading has already been cut down to what the command printed
+        (see strip_prompt_and_echo), so a needle that merely sits in the
+        prompt or the echo does not count. The websocket and clipboard must
+        contain it after normalisation; OCR is allowed a misread character,
+        so it passes if it contains the needle or if the whole OCR reading of
+        the output resembles the websocket reading of it.
         """
         if not needle.strip():
             raise ValueError("needle must not be empty")
@@ -170,23 +225,33 @@ class WebTerminal:
         deadline = time.monotonic() + timeout
         next_look = time.monotonic()
         while time.monotonic() < deadline:
-            if at_a_prompt(decode_wssh_frames(self._frames), self.prompt):
-                return
-            if time.monotonic() >= next_look:
+            # The bytes say when to look; the screen says whether it is there.
+            # Returning on the bytes alone would call a terminal usable that
+            # a person cannot see a prompt on.
+            if at_a_prompt(decode_wssh_frames(self._frames), self.prompt) or time.monotonic() >= next_look:
                 if self._screen_shows_prompt():
                     return
                 next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
         raise TimeoutError(
-            f"no shell prompt within {timeout}s; the screen reads {self._last_screen!r} "
-            f"and the socket sent {decode_wssh_frames(self._frames)!r}"
+            f"no shell prompt within {timeout}s; {describe_busy_shell(self._last_screen)}"
+            f"the screen reads {ocr.normalise(self._last_screen)[-600:]!r} "
+            f"and the socket sent {ocr.normalise(decode_wssh_frames(self._frames))[-600:]!r}"
         )
 
     def _screen_shows_prompt(self) -> bool:
-        """Is there a prompt on the terminal as rendered? What a person checks."""
+        """Is there a prompt on the terminal as rendered? What a person checks.
+
+        A glance, so it must not wait long for a terminal surface that is not
+        there: on a board whose login fails there is no xterm at all, and a
+        60s wait per look turned a 45s timeout into 91s. What the iframe
+        shows instead -- "Authentication failed." -- is kept as the screen
+        reading, because that is what the person sees.
+        """
         try:
-            self._last_screen = self._ocr_visible()
-        except Exception:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
+            self._last_screen = self._ocr_visible(timeout=1.0, retry_wait=1.0)
+        except Exception as exc:  # noqa: BLE001 - nothing to screenshot yet is a reason to keep waiting
+            self._last_screen = f"(no terminal surface: {exc})"
             return False
         return at_a_prompt(without_cursor(self._last_screen), self.prompt)
 
@@ -275,7 +340,12 @@ class WebTerminal:
         return frame
 
     def run(self, command: str, timeout: float = 30.0, settle: float = 1.5) -> TerminalOutput:
-        """Type a command, wait for the prompt, and read the output three ways."""
+        """Type a command, wait for the prompt, and read the output three ways.
+
+        Raises TimeoutError if the prompt does not come back: a command that
+        is still running is not a command whose output can be read, and
+        typing the next one into it would feed a hung process.
+        """
         self.wait_for_terminal()
         self._focus()
         mark = len(self._frames)
@@ -283,7 +353,7 @@ class WebTerminal:
         self.page.keyboard.press("Enter")
 
         deadline = time.monotonic() + timeout
-        last_len, quiet_since = -1, None
+        last_len, quiet_since, returned = -1, None, False
         while time.monotonic() < deadline:
             raw = decode_wssh_frames(self._frames[mark:])
             if len(raw) != last_len:
@@ -291,38 +361,52 @@ class WebTerminal:
             elif at_a_prompt(raw, self.prompt):
                 quiet_since = quiet_since or time.monotonic()
                 if time.monotonic() - quiet_since >= settle:
+                    returned = True
                     break
             self.page.wait_for_timeout(250)
 
         raw = decode_wssh_frames(self._frames[mark:])
+        if not returned:
+            raise TimeoutError(
+                f"`{command}` did not return to a prompt within {timeout}s; it printed {ocr.normalise(raw)[-400:]!r}"
+            )
         return TerminalOutput(
             websocket=strip_prompt_and_echo(raw, command, self.prompt),
             clipboard=strip_prompt_and_echo(self._copy_visible(), command, self.prompt),
-            ocr_text=self._ocr_visible(),
+            ocr_text=strip_prompt_and_echo(self._ocr_visible(), command, self.prompt),
         )
 
-    def exit_status(self) -> int:
-        """Ask the shell what the last command returned, the way the site's own demos do."""
+    def exit_status(self) -> tuple[int | None, str]:
+        """Ask the shell what the last command returned, the way the site's own demos do.
+
+        Read like everything else: the number has to be on screen too, not
+        only in the WebSocket bytes. None when no status could be read, with
+        the detail saying what was seen instead.
+        """
         out = self.run("echo $?")
-        match = re.search(r"-?\d+", out.text)
+        # A whole line that is a number: the first integer anywhere would take
+        # a "0" from a tmux status repaint and call a failed command a success.
+        match = re.search(r"^\s*(-?\d+)\s*$", out.text, re.MULTILINE)
         if match is None:
-            raise AssertionError(f"could not read an exit status from {out.text!r}")
-        return int(match.group())
+            return None, f"could not read an exit status from {out.text!r}"
+        shown, detail = out.shows(match.group(1))
+        return (int(match.group(1)) if shown else None), detail
 
     # -- the two screen-side readings --
 
-    def _retrying(self, read):
+    def _retrying(self, read, wait: float = 60.0):
         """Read the terminal surface, once more if it was mid-rebuild.
 
         WebSSH does not rebuild the iframe once and settle: after "reset ssh"
         the xterm appears, the prompt arrives, and the surface can still be
         torn down and built again underneath. A person waits for it to come
         back and looks again rather than declaring the terminal broken.
+        `wait` bounds how long to wait for it to come back.
         """
         try:
             return read()
         except Exception:  # noqa: BLE001 - a rebuild in progress, not a dead terminal
-            self.wait_for_terminal()
+            self.wait_for_terminal(timeout=wait)
             return read()
 
 
@@ -339,10 +423,11 @@ class WebTerminal:
         self.page.keyboard.press("Control+Insert")
         return self.page.evaluate("navigator.clipboard.readText()")
 
-    def _ocr_visible(self, timeout: float = 5.0) -> str:
+    def _ocr_visible(self, timeout: float = 5.0, retry_wait: float = 60.0) -> str:
         shot = self._retrying(
             lambda: self.page.frame_locator(self.frame_selector)
             .locator(".xterm-screen")
-            .screenshot(timeout=timeout * 1000)
+            .screenshot(timeout=timeout * 1000),
+            wait=retry_wait,
         )
         return ocr.read_text(Image.open(io.BytesIO(shot)), psm=6)
