@@ -64,29 +64,46 @@ screen of anyone watching; and makes one ssh login with the banner's
 password, typing `hostname`, which is a second client on the same tmux
 session. It does not click "Check PoE", Reset, or the upload form.
 
-The suite treats the board's terminal as a tmux session shared with every
-visitor, because that is what it measured on 2026-09-14 (docs/ROADMAP.md, the
-`sudo apt install pipx` that sat on pi7's prompt for an hour), and because
-being wrong costs nothing: typing appends to whatever is on the line and Enter
-runs it, so before typing, in the web terminal and after the ssh login, the
-suite reads the screen. What it does, in plain terms:
+The suite does not assume it has the terminal to itself. Typing appends to
+whatever is on the shell's line and Enter runs it, so before typing, in the
+web terminal and after the ssh login, the suite reads the screen. Whether a
+visitor can be on our line at all is not shown by this repo: the Pis'
+`zprofile` (fpgas.online-setup-pi, `onpi/tmux`) says each login is a new
+window in a shared tmux session group, which would give our login a fresh
+prompt, but the suite has not observed which of the two happens. The guard
+costs nothing, so it stays. What it does, in plain terms:
 
 - **A visitor is using the terminal: the test is skipped, nothing is typed.**
-  The shell's last prompt line has anything after it other than the cursor
-  block (a lone `|`, `_`, `[` or `l` counts as text), or there are lines under
-  the last prompt (a wrapped command, running output, a REPL). The skip
-  reason reads "a visitor is using the terminal: ...", listed by `-ra`. This
-  applies in the `board_page` fixture's check, in the web terminal, and after
-  the ssh login. In the audit the cell reads "skipped" with that reason.
-- **No prompt line at all: the test fails**, as it always did. The terminal
-  is dead or showing something else (a login form, "Authentication failed.").
-  This includes a prompt that was there moments ago and is gone.
+  Only this skips: the shell's last prompt line has anything after it other
+  than the cursor block (a lone `|`, `_`, `[` or `l` counts as text), with
+  at most unremarkable output under it, which is what a half-typed or
+  running command looks like. The skip reason reads "a visitor is using the
+  terminal: ..." and quotes the screen it was judged from; `-ra` lists it. This
+  applies in the `board_page` fixture, in the web terminal, and after the ssh
+  login. In the audit the cell reads "skipped" with that reason.
+- **Everything else that is not a free line fails, quoting the screen.** No
+  prompt line at all (a login form, "Authentication failed.", a prompt that
+  was there moments ago and is gone), and text under the prompt that is a
+  closed session, an error or a system message ("Connection to ... closed",
+  "Stale file handle", "Input/output error", a broadcast, a kernel line,
+  "Read-only file system") or that the suite does not recognise. When in
+  doubt it fails: a skip hides a broken board, a failure gets looked at.
+- **The camera is checked before the terminal**, so a busy terminal cannot
+  hide a board whose picture is dead.
 - **A skip never hides a failure**: if the test had already recorded evidence
   that did not hold, it fails instead of skipping.
+- The tmux status line (the last row, ending in a clock) is ignored; it is
+  recognised by position and that loose shape, not an exact format. If OCR
+  mangles it beyond recognition the result is a failure, not a skip.
+
+**A board that is skipped as busy on every scheduled run needs a look**: a
+suite that always skips tests nothing. Read the screen quoted in the skip
+reason (it is in the job log and the `-ra` summary): it is either a real
+long-running command, or a prompt this suite misreads.
 
 The read can be fooled in both directions by OCR; the design accepts a
-spurious skip but not a typed command. A visitor who starts typing in the few
-milliseconds between the look and the keystrokes is not detected.
+spurious skip or failure but not a typed command. A visitor who starts typing
+in the few milliseconds between the look and the keystrokes is not detected.
 
 ## Auditing a whole site
 
