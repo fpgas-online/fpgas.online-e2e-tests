@@ -189,3 +189,29 @@ def test_the_login_waits_with_ssh_s_own_prompt(monkeypatch, tmp_path):
         sshclient.log_in_with_the_printed_command(COMMAND, [], tmp_path / "kh", timeout=1)
     assert sshclient._SSH_PASSWORD_PROMPT in seen[0]
     assert sshclient._PASSWORD_PROMPT not in seen[0]
+
+
+def test_after_the_host_key_question_the_login_also_waits_with_ssh_s_own_prompt(monkeypatch, tmp_path):
+    # The suite's known_hosts is fresh on every run, so this is the path a real run always takes.
+    seen = []
+
+    class Child:
+        before, after = "The authenticity of host ... (yes/no/[fingerprint])?", ""
+
+        def expect(self, patterns, **_kwargs):
+            seen.append(list(patterns))
+            return 0 if len(seen) == 1 else len(patterns) - 1  # the question, then TIMEOUT
+
+        def sendline(self, line):
+            pass
+
+        def close(self, force=False):
+            pass
+
+    monkeypatch.setattr(sshclient.pexpect, "spawn", lambda *args, **kwargs: Child())
+    with pytest.raises(sshclient.SshFailed):
+        sshclient.log_in_with_the_printed_command(
+            "ssh -p 23722 pi@welland.fpgas.online", [], tmp_path / "kh", timeout=1
+        )
+    assert sshclient._SSH_PASSWORD_PROMPT in seen[1]
+    assert sshclient._PASSWORD_PROMPT not in seen[1]
