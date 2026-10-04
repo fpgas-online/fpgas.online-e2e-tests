@@ -188,3 +188,17 @@ def test_check_stopped_needs_the_pixels_still_as_well_as_the_digits(monkeypatch)
     cam = _FakeCamera([1, 2, 3, 4, 5, 6], then="ticking")
     stopped, detail = cam.check_stopped(timeout=0.3, gap=0.0)
     assert not stopped, detail
+
+
+def test_check_stopped_does_not_fire_when_readable_and_unreadable_readings_alternate(monkeypatch):
+    """Frozen pixels, but every second reading is unreadable.
+
+    Unreadable readings must reset the run, not be skipped over: otherwise the
+    readable ones would add up to a run of identical readings and call a
+    picture stopped that was never once read twice in a row.
+    """
+    readings = iter(["15:59:07", None] * 50)
+    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: next(readings))
+    cam = _FakeCamera([7] * 20, then="stuck")
+    stopped, detail = cam.check_stopped(timeout=0.5, gap=0.0)
+    assert not stopped, detail
