@@ -211,8 +211,9 @@ def _require_ground_truth(request, evidence):
     # always gets as far as observing reality. They still have to hold: a
     # status box that never said what it should is a real finding, it is just
     # not a reason to stop watching the board.
-    assert not evidence.failures, f"{request.node.name} recorded evidence that did not hold:\n" + "\n".join(
-        f"  [{e.kind.value}] {e.description}\n    {e.detail}" for e in evidence.failures
+    assert not evidence.failures, (
+        f"{request.node.name} recorded evidence that did not hold:\n"
+        + "\n".join(f"  [{e.kind.value}] {e.description}\n    {e.detail}" for e in evidence.failures)
     )
     assert evidence.has_ground_truth, (
         f"{request.node.name} passed without observing anything outside the web application.\n"
