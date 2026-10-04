@@ -18,7 +18,14 @@ import pytest
 
 from e2e.camera import PICTURE_REGION, difference
 
-BITSTREAM = Path(__file__).parents[2] / "fixtures" / "counter_test" / "top.bit"
+FIXTURES = Path(__file__).parents[2] / "fixtures"
+
+# What this repo can load, by the FPGA type the site shows for the board:
+# (bitstream fixture, openFPGALoader arguments). A type absent from here has
+# no bitstream in this repo, and its test is skipped rather than guessed at.
+LOADABLE = {
+    "arty": (FIXTURES / "counter_test" / "top.bit", "-b arty"),
+}
 # Absolute, because the shared tmux session is not necessarily at $HOME: the
 # page's own "Blink LEDs" button leaves it in ~/Demos/counter_test, and a
 # relative path then reports "No such file or directory" on a healthy board.
@@ -31,6 +38,11 @@ REMOTE = "~/Uploads/top.bit"
 # Revisit with real before/after frames once the upload endpoint is fixed.
 CHANGED = 0.005
 STILL_RUNNING = 0.002
+
+
+def loadable_for(board) -> tuple[Path, str] | None:
+    """The bitstream and loader arguments for this board's FPGA type, or None."""
+    return LOADABLE.get(board.fpga_type)
 
 
 def _picture_difference(a, b) -> float:
@@ -54,14 +66,21 @@ def _recently_written(text: str, window: int = 600) -> tuple[bool, str]:
 
 
 @pytest.mark.live
-def test_uploaded_bitstream_programs_the_arty_and_changes_the_leds(board_page, evidence):
+def test_uploaded_bitstream_programs_the_fpga_and_changes_the_leds(board_page, evidence):
     session = board_page()
+    loadable = loadable_for(session.board)
+    if loadable is None:
+        pytest.skip(
+            f"{session.board.hostname}: no bitstream fixture or loader command for FPGA type "
+            f"{session.board.fpga_type!r} (the site shows {session.board.fpga_board!r})"
+        )
+    bitstream, loader_args = loadable
     page, terminal, camera = session.page, session.terminal, session.camera
 
     camera.check_live_with_recovery(timeout=60)
     before = camera.shot()
 
-    page.set_input_files("#upform input[type=file]", str(BITSTREAM))
+    page.set_input_files("#upform input[type=file]", str(bitstream))
     page.click("#upform input[type=submit]")
     page.wait_for_load_state("domcontentloaded")
 
@@ -85,7 +104,7 @@ def test_uploaded_bitstream_programs_the_arty_and_changes_the_leds(board_page, e
     # a previous run, or another user's, satisfies it just as well. A person
     # checks the file is new, so ask for the timestamp too.
     listing = terminal.run(f"ls -l --time-style=+%Y-%m-%dT%H:%M {REMOTE}")
-    shown, detail = listing.shows(str(BITSTREAM.stat().st_size))
+    shown, detail = listing.shows(str(bitstream.stat().st_size))
     evidence.ground_truth("the bitstream really landed on the Pi at the right size", shown, detail=detail)
 
     stamped = terminal.run(f"date +%Y-%m-%dT%H:%M; stat -c %Y {REMOTE}")
@@ -96,7 +115,7 @@ def test_uploaded_bitstream_programs_the_arty_and_changes_the_leds(board_page, e
         detail=fresh_detail,
     )
 
-    programming = terminal.run(f"openFPGALoader -b arty {REMOTE}", timeout=180)
+    programming = terminal.run(f"openFPGALoader {loader_args} {REMOTE}", timeout=180)
     status = terminal.exit_status()
     evidence.ground_truth(
         "openFPGALoader programmed the FPGA",

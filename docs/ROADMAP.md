@@ -25,17 +25,16 @@ The suite validates the *depth* of one path, not the breadth of identical
 paths: if PoE control works on one board, it is not proven again on thirteen
 more. One board is picked at random per run.
 
-Every board is assumed to be an Arty. The sites do not reliably say what FPGA
-is fitted -- ps1 names none at all -- so selecting by the advertised type only
-meant the Arty tests refused to run anywhere. A board that turns out not to be
-an Arty now fails inside the test, where the failure names the real problem
-rather than being hidden behind a selection gate.
+Every board the index lists is a candidate, and its FPGA type is read from
+what the index shows for it (ps1 shows none, so its boards are "unknown"). A
+test that needs a type this repo has fixtures for (today only the Arty) skips,
+naming the type, when the chosen board is another; it never assumes one.
 
 Steps are tagged **[G]** ground truth (observed outside the web application)
 or **[C]** claim (what the site says about itself). A test may assert on a
 claim, but may never pass on claims alone.
 
-## Phase 1 -- Arty, board page (`/fpgas/pi<N>.html`)
+## Phase 1 -- Arty, board page (`/fpgas/<hostname>.html`)
 
 Highest priority: a test per control.
 

@@ -26,7 +26,7 @@ class BoardSession:
 def board_page(browser, browser_context_args, page, site, seed, on_dead, evidence):
     """Factory: board_page() -> BoardSession on a live, working board.
 
-    Any board the index lists will do, and every one is assumed to be an Arty.
+    Any board the index lists will do, and what FPGA it is comes from what the index shows (Board.fpga_type).
     """
 
     contexts: list = []
