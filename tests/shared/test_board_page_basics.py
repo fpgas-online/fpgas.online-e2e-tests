@@ -9,10 +9,17 @@ which FPGA is fitted, so it runs on any board on any site.
 import pytest
 
 from e2e import journeys
+from e2e.terminal import TerminalBusy
 
 
 @pytest.mark.live
 def test_a_board_page_gives_you_a_live_camera_and_a_working_terminal(board_page, evidence):
     session = board_page()
     journeys.camera_is_live(session, evidence)
-    journeys.terminal_reaches_the_board(session, evidence)
+    try:
+        journeys.terminal_reaches_the_board(session, evidence)
+    except TerminalBusy as exc:
+        # Skipped, not failed: a visitor using the shared terminal is not a
+        # fault in the board, and the camera was already checked above. The
+        # test is typing nothing, and -ra puts this reason in the summary.
+        pytest.skip(f"the shared terminal is in use, so nothing was typed into it: {exc}")

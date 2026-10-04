@@ -2,11 +2,13 @@ import pytest
 
 from e2e.terminal import (
     DEFAULT_PROMPT,
+    TerminalBusy,
     TerminalOutput,
     WebTerminal,
     at_a_prompt,
     decode_wssh_frames,
     strip_prompt_and_echo,
+    text_after_last_prompt,
     without_cursor,
 )
 
@@ -301,3 +303,87 @@ def test_a_free_prompt_is_not_described_as_busy():
 
     assert describe_busy_shell("03:26:04 pi@pi7:~ $ []\n") == ""
     assert describe_busy_shell("") == ""
+
+
+# -- refusing to type into a terminal someone is using ------------------------
+
+
+class _RespondingKeyboard(_FakeKeyboard):
+    """Records keystrokes; Enter makes the shell answer, as a real one would."""
+
+    def __init__(self, term):
+        super().__init__()
+        self.term = term
+
+    def press(self, key):
+        super().press(key)
+        if key == "Enter":
+            self.term._frames.append(b"hostname\r\npi7\r\n03:30:00 pi@pi7:~ $ ")
+
+
+def _ready_terminal(screen):
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen=screen)
+    page.keyboard = _RespondingKeyboard(term)
+    term.wait_for_terminal = lambda timeout=60.0: None
+    term._focus = lambda: None
+    term._copy_visible = lambda: "pi7"
+    return page, term
+
+
+def test_run_types_and_presses_enter_when_the_prompt_line_is_empty():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ []\n[default-10:bash*  pi7 02:28pm\n")
+
+    out = term.run("hostname", settle=0)
+
+    assert page.keyboard.pressed == ["hostname", "Enter"]
+    assert out.websocket == "pi7"
+
+
+def test_run_types_nothing_when_someone_has_a_half_typed_command_on_the_line():
+    """Without the guard `type` appends to the line and Enter runs the visitor's command plus ours."""
+    page, term = _ready_terminal("03:26:04 pi@pi7:~/Demos $ sudo apt install pipx\n")
+
+    with pytest.raises(TerminalBusy) as caught:
+        term.run("hostname", settle=0)
+
+    assert "'sudo apt install pipx'" in str(caught.value)
+    assert page.keyboard.pressed == []
+
+
+def test_run_types_nothing_when_no_prompt_line_is_visible():
+    page, term = _ready_terminal("Reading package lists...\nBuilding dependency tree...\n")
+
+    with pytest.raises(TerminalBusy, match="no shell prompt line is visible"):
+        term.run("hostname", settle=0)
+
+    assert page.keyboard.pressed == []
+
+
+def test_exit_status_is_refused_too_when_the_line_is_not_empty():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ ls -l\n")
+
+    with pytest.raises(TerminalBusy):
+        term.exit_status()
+
+    assert page.keyboard.pressed == []
+
+
+@pytest.mark.parametrize(
+    ("screen", "expected"),
+    [
+        ("03:26:04 pi@pi7:~ $ \n", ""),
+        ("03:26:04 pi@pi7:~ $ []\n", ""),
+        ("03:26:04 pi@pi7:~ $\n", ""),
+        ("03:26:04 pi@pi7:~ # \n", ""),
+        ("03:26:04 pi@pi7:~ $ echo $HOME\n", "echo $HOME"),
+        # the last prompt wins, earlier commands in the history do not count
+        ("03:24:27 pi@pi7:~ $ echo hi\nhi\n03:26:04 pi@pi7:~ $ \n", ""),
+        ("03:24:27 pi@pi7:~ $ \n03:26:04 pi@pi7:~ $ vi x\n", "vi x"),
+        ("\x1b[32mpi@pi7\x1b[m:~ $ \x1b[Kls\n", "ls"),
+        ("no prompt here\n", None),
+        ("", None),
+    ],
+)
+def test_text_after_last_prompt(screen, expected):
+    assert text_after_last_prompt(screen) == expected
