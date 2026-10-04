@@ -92,9 +92,21 @@ costs nothing, so it stays. What it does, in plain terms:
   hide a board whose picture is dead.
 - **A skip never hides a failure**: if the test had already recorded evidence
   that did not hold, it fails instead of skipping.
-- The tmux status line (the last row, ending in a clock) is ignored; it is
-  recognised by position and that loose shape, not an exact format. If OCR
-  mangles it beyond recognition the result is a failure, not a skip.
+- The tmux status line is ignored. It is the last row and must have the whole
+  shape (session number, at least one `<digit>:<name>` window, host, clock);
+  a clock at the end of a line is not enough, and a row that reads as a fault
+  is never taken for it. OCR dropping brackets or flags, or reading digits as
+  lookalikes (`O`, `l`, `S`, `B`, `Z`), is tolerated. If the row is mangled
+  beyond that the result is a failure, not a skip.
+
+What still fails by design, and why. The rule is "when in doubt, fail": a skip
+hides a broken board and a failure gets looked at. So these fail and do not
+skip: a full-screen program (a REPL, `less`, `htop`) or a wrapped prompt, where
+no prompt row is on screen; text under an empty prompt the suite does not
+recognise; and a visitor's command whose output under the typed line contains
+an error pattern ("error", "failed", "Permission denied", ...). Each login
+should get its own tmux window, so these should be rare; if one recurs on a
+board, look at the screen quoted in the failure.
 
 **A board that is skipped as busy on every scheduled run needs a look**: a
 suite that always skips tests nothing. Read the screen quoted in the skip
