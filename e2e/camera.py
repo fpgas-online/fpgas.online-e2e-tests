@@ -99,8 +99,21 @@ def _seconds(clock: str) -> int:
     return hours * 3600 + minutes * 60 + seconds
 
 
+class CameraNotShown(RuntimeError):
+    """No player element for this board is on screen; the message says what was found and in what state."""
+
+
 class Camera:
-    """The video element on a board page."""
+    """The picture on a board page, whichever player is showing it.
+
+    The page carries two players for one camera (fpgas.online-site
+    whep-live.js): a low-latency WHEP <video> inside `.whep-live`, which is
+    displayed while its picture is arriving, and the older video.js HLS
+    player, which is hidden and paused meanwhile and is what the page falls
+    back to when WHEP delivers nothing. Everything the suite reads comes from
+    the element that is displayed now, because that is what a person sees; the
+    hidden one is in the page but showing nothing.
+    """
 
     def __init__(self, page, video_selector: str, port: int | None = None):
         self.page = page
@@ -108,16 +121,30 @@ class Camera:
         # The page's own controls are addressed by switch port.
         self.port = port if port is not None else video_selector.rsplit("player", 1)[-1]
 
-    def video_selector(self) -> str:
-        """Where the real <video> lives once video.js has had its way.
-
-        video.js moves the author's id onto a wrapper <div> and renames the
-        media element to "<id>_html5_api", so the obvious selector resolves to
-        a div with no currentTime and no videoWidth. Before the player
-        initialises the id is still on the <video>, hence the fallback.
-        """
+    def _candidates(self) -> list[tuple[str, str]]:
+        """The elements that can show this board's picture, WHEP first: (what it is, selector)."""
+        hls_id = self.selector.lstrip("#")
+        whep = f'.whep-live[data-hls-id="{hls_id}"] video'
+        # video.js moves the author's id onto a wrapper <div> and renames the
+        # media element to "<id>_html5_api", so the obvious selector resolves
+        # to a div with no currentTime and no videoWidth. Before the player
+        # initialises the id is still on the <video>, hence the fallback.
         inner = f"{self.selector} video"
-        return inner if self.page.locator(inner).count() else self.selector
+        videojs = inner if self.page.locator(inner).count() else self.selector
+        return [("the WHEP <video>", whep), ("the video.js <video>", videojs)]
+
+    def video_selector(self) -> str:
+        """The <video> that is displayed now; raises CameraNotShown, saying what was found, if none is."""
+        found = []
+        for what, selector in self._candidates():
+            locator = self.page.locator(selector)
+            if not locator.count():
+                found.append(f"{what} ({selector}): not in the page")
+            elif locator.is_visible():
+                return selector
+            else:
+                found.append(f"{what} ({selector}): in the page but not visible")
+        raise CameraNotShown(f"no camera picture is displayed; found {'; '.join(found)}")
 
     def shot(self) -> Image.Image:
         """A screenshot of the video element as rendered."""
@@ -135,12 +162,17 @@ class Camera:
         different faults. readyState 0 with no error and paused=True means the
         player never began -- usually the browser's autoplay policy.
         """
+        try:
+            selector = self.video_selector()
+        except CameraNotShown as exc:
+            return {"error": str(exc)}
         return self.page.evaluate(
             """
             (selector) => {
               const v = document.querySelector(selector);
               if (!v) return {error: 'no video element'};
               return {
+                element: v.closest('.whep-live') ? 'whep' : v.id,
                 videoWidth: v.videoWidth, readyState: v.readyState,
                 currentTime: Number(v.currentTime.toFixed(1)), paused: v.paused,
                 error: v.error ? `${v.error.code}: ${v.error.message}` : null,
@@ -150,10 +182,11 @@ class Camera:
                 // readyState 0 forever with no error, so say whether it loaded.
                 videojs: typeof window.videojs,
                 src: v.currentSrc || null,
+                srcObject: Boolean(v.srcObject),
               };
             }
             """,
-            self.video_selector(),
+            selector,
         )
 
     def is_live(self, gap: float = 3.0) -> tuple[bool, str]:
