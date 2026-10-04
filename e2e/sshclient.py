@@ -49,6 +49,21 @@ class SshFailed(RuntimeError):
     """The login did not reach a shell. The message quotes what ssh printed."""
 
 
+class SshUnreachable(SshFailed):
+    """The ssh port could not be reached at all: refused, timed out, no route, or silence with nothing received.
+
+    Not name-resolution failures, not a refused password, and nothing that
+    happened after the server sent any output: those mean the port was reached.
+    """
+
+
+# ssh's own wording when the TCP connection to the port fails.
+_UNREACHABLE = re.compile(
+    r"connect to host \S+ port \d+: "
+    r"(?:Connection refused|Connection timed out|Operation timed out|No route to host|Network is unreachable)"
+)
+
+
 @dataclasses.dataclass(frozen=True)
 class SshLogin:
     command: str
@@ -159,8 +174,12 @@ def log_in_with_the_printed_command(
             transcript += child.before + _after(child)
         printed = ocr.normalise(transcript)
         if which == 3:
+            if not printed:
+                raise SshUnreachable(f"{command!r} printed nothing at all within {timeout}s")
             raise SshFailed(f"{command!r} printed nothing more within {timeout}s; so far: {printed!r}")
         if which == 2:
+            if _UNREACHABLE.search(printed):
+                raise SshUnreachable(f"{command!r} could not reach the port; it printed {printed!r}")
             raise SshFailed(f"{command!r} exited before asking for a password; it printed {printed!r}")
 
         banner = banner_from(transcript)
