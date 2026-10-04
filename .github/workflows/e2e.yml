@@ -18,6 +18,10 @@ on:
         default: fail
         type: choice
         options: [fail, retry]
+      disruptive:
+        description: "Also upload a bitstream to and power-cycle the chosen board (a public board; the scheduled run never does)"
+        default: false
+        type: boolean
       audit:
         description: "Audit every board at the site instead (read-only unless the next box is ticked)"
         default: false
@@ -57,6 +61,11 @@ jobs:
           esac
 
   shared:
+    # The scheduled run and a plain dispatch pass no --disruptive, so the
+    # upload and the power cycle are skipped (the summary lists them, with the
+    # reason). `inputs` is empty on a schedule, so inputs.disruptive is null
+    # and the expression yields ''; only a dispatch with the box ticked yields
+    # '--disruptive'.
     if: ${{ !inputs.audit }}
     needs: [unit, plan]
     runs-on: ubuntu-latest
@@ -87,6 +96,7 @@ jobs:
             --site ${{ matrix.site }} \
             --on-dead ${{ inputs.on_dead || 'fail' }} \
             ${{ inputs.seed && format('--seed {0}', inputs.seed) || '' }} \
+            ${{ inputs.disruptive && '--disruptive' || '' }} \
             --screenshot on --video retain-on-failure --tracing retain-on-failure \
             --output test-results
       - name: Upload artefacts

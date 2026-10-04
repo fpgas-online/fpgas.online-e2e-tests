@@ -2,10 +2,13 @@ import pytest
 
 from e2e.terminal import (
     DEFAULT_PROMPT,
+    TerminalBusy,
+    TerminalLost,
     TerminalOutput,
     WebTerminal,
     at_a_prompt,
     decode_wssh_frames,
+    read_shell_line,
     strip_prompt_and_echo,
     without_cursor,
 )
@@ -301,3 +304,272 @@ def test_a_free_prompt_is_not_described_as_busy():
 
     assert describe_busy_shell("03:26:04 pi@pi7:~ $ []\n") == ""
     assert describe_busy_shell("") == ""
+
+
+# -- refusing to type into a terminal someone is using ------------------------
+
+
+class _RespondingKeyboard(_FakeKeyboard):
+    """Records keystrokes; Enter makes the shell answer, as a real one would."""
+
+    def __init__(self, term):
+        super().__init__()
+        self.term = term
+
+    def press(self, key):
+        super().press(key)
+        if key == "Enter":
+            self.term._frames.append(b"hostname\r\npi7\r\n03:30:00 pi@pi7:~ $ ")
+
+
+def _ready_terminal(screen):
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen=screen)
+    page.keyboard = _RespondingKeyboard(term)
+    term.wait_for_terminal = lambda timeout=60.0: None
+    term._focus = lambda: None
+    term._copy_visible = lambda: "pi7"
+    return page, term
+
+
+def test_run_types_and_presses_enter_when_the_prompt_line_is_empty():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ []\n[default-10:bash*  pi7 02:28pm\n")
+
+    out = term.run("hostname", settle=0)
+
+    assert page.keyboard.pressed == ["hostname", "Enter"]
+    assert out.websocket == "pi7"
+
+
+def test_run_types_nothing_when_someone_has_a_half_typed_command_on_the_line():
+    """Without the guard `type` appends to the line and Enter runs the visitor's command plus ours."""
+    page, term = _ready_terminal("03:26:04 pi@pi7:~/Demos $ sudo apt install pipx\n")
+
+    with pytest.raises(TerminalBusy) as caught:
+        term.run("hostname", settle=0)
+
+    assert "'sudo apt install pipx'" in str(caught.value)
+    assert page.keyboard.pressed == []
+
+
+def test_run_types_nothing_and_fails_when_no_prompt_line_is_visible():
+    """No prompt at all is a dead terminal, not a visitor: a failure quoting the screen."""
+    page, term = _ready_terminal("Reading package lists...\nBuilding dependency tree...\n")
+
+    with pytest.raises(TerminalLost, match="Building dependency tree") as caught:
+        term.run("hostname", settle=0)
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert page.keyboard.pressed == []
+
+
+def test_a_prompt_seen_moments_ago_that_is_then_gone_is_a_failure_not_a_skip():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ []\n")
+    term.wait_for_prompt(timeout=2.0)  # the prompt is there
+
+    term._ocr_visible = lambda **_: "Authentication failed.\n"  # and then it is not
+
+    with pytest.raises(TerminalLost, match="Authentication failed"):
+        term.run("hostname", settle=0)
+    assert page.keyboard.pressed == []
+
+
+def test_run_focuses_the_terminal_before_looking_and_looks_before_typing():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ []\n")
+    order = []
+    term._focus = lambda: order.append("focus")
+    term._ocr_visible = lambda **_: order.append("look") or "03:26:04 pi@pi7:~ $ []\n"
+    page.keyboard.type = lambda text: order.append("type")
+
+    term.run("hostname", settle=0)
+
+    assert order[:3] == ["focus", "look", "type"]
+
+
+def test_wait_for_prompt_says_busy_when_the_only_prompt_line_has_text_after_it():
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="03:26:04 pi@pi7:~ $ sudo apt install pipx\n")
+
+    with pytest.raises(TerminalBusy, match="a visitor is using the terminal: 'sudo apt install pipx'"):
+        term.wait_for_prompt(timeout=0.5)
+    assert page.keyboard.pressed == []
+
+
+def test_wait_for_prompt_with_no_prompt_line_at_all_is_still_a_timeout():
+    """Dead stays a failure exactly as before."""
+    term = _terminal(_FakePage(), frames=[], screen="Authentication failed.\n")
+
+    with pytest.raises(TimeoutError) as caught:
+        term.wait_for_prompt(timeout=0.5)
+    assert not isinstance(caught.value, TerminalBusy)
+
+
+def test_exit_status_is_refused_too_when_the_line_is_not_empty():
+    page, term = _ready_terminal("03:26:04 pi@pi7:~ $ ls -l\n")
+
+    with pytest.raises(TerminalBusy):
+        term.exit_status()
+
+    assert page.keyboard.pressed == []
+
+
+PROMPT = "03:26:04 pi@pi7:~ $ "
+# The real status line (fpgas.online-setup-pi onpi/tmux/tmux.conf): [session number] windows, hostname, %I:%M%p.
+STATUS = "[3] 0:h- 1:bash*                    pi-sw2-p46 10:50PM"
+
+
+@pytest.mark.parametrize(
+    ("screen", "state"),
+    [
+        # free: nothing after the prompt, or exactly the cursor block OCR reads as "[]"
+        (PROMPT + "\n", "free"),
+        (PROMPT + "[]\n", "free"),
+        ("03:26:04 pi@pi7:~ $\n", "free"),
+        ("03:26:04 pi@pi7:~ # \n", "free"),
+        ("03:24:27 pi@pi7:~ $ echo hi\nhi\n" + PROMPT + "[]\n", "free"),
+        # a single stray character is a visitor's first keystroke, never a cursor
+        (PROMPT + "|\n", "busy"),
+        (PROMPT + "_\n", "busy"),
+        (PROMPT + "[\n", "busy"),
+        (PROMPT + "]\n", "busy"),
+        (PROMPT + "l\n", "busy"),
+        (PROMPT + "[][]\n", "busy"),
+        (PROMPT + "ls []\n", "busy"),
+        (PROMPT + "echo $HOME\n", "busy"),
+        ("03:24:27 pi@pi7:~ $ []\n03:26:04 pi@pi7:~ $ vi x\n", "busy"),
+        ("\x1b[32mpi@pi7\x1b[m:~ $ \x1b[Kls\n", "busy"),
+        # a command typed on the line that is running: its output is under it
+        (PROMPT + "sleep 99\nstill going\n", "busy"),
+        (PROMPT + "sudo apt install pipx\nReading package lists...\n", "busy"),
+        # a broken board never reads as a visitor: text under the prompt that is a closed session,
+        # an error or a system message fails, whether or not the line above has text
+        (PROMPT + "[]\nConnection to pi7 closed.\n", "broken"),
+        (PROMPT + "ls\nbash: /usr/bin/ls: Stale file handle\n", "broken"),
+        (PROMPT + "[]\nbash: /usr/bin/ls: Stale file handle\n", "broken"),
+        (PROMPT + "[]\nBroadcast message from root@pi7 (Sun 2026-10-04 22:00):\nThe system is going down\n", "broken"),
+        (PROMPT + "[]\n[  123.456789] mmc0: error -110 whilst initialising SD card\n", "broken"),
+        (PROMPT + "[]\nls: reading directory '.': Input/output error\n", "broken"),
+        (PROMPT + "[]\ntouch: cannot touch 'x': Read-only file system\n", "broken"),
+        (PROMPT + "apt install x\nE: Failed to fetch http://x  Read-only file system\n", "broken"),
+        # anything else under an empty prompt is unrecognised: when in doubt, not a visitor
+        (PROMPT + "[]\n>>> import os\n", "unknown"),
+        ("03:26:04 pi@pi7:~/a/very/long/path $ []\nsudo apt install pipx\n", "unknown"),
+        # no prompt line at all
+        ("no prompt here\n", "none"),
+        (">>> import os\n", "none"),
+        ("", "none"),
+    ],
+)
+def test_read_shell_line_state(screen, state):
+    assert read_shell_line(screen).state == state
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "[3] 0:h- 1:bash*                    pi-sw2-p46 10:50PM",  # the real one
+        "[12] 0:h 1:bash- 2:bash*     pi-sw2-p46 07:05AM",  # several windows, zero-padded hour
+        "[3] 0:h 1:bash*   pi7 22:50",  # 24-hour
+        "[default-10:bash*            pi2 02:28pm",  # the older capture
+        "3 0:h- 1:bash   pi-sw2-p46 10:50PM",  # OCR dropped the brackets and the star
+        "[3 0:h- 1:bash*   pi-sw2-p46 10:5OPM",  # OCR read a zero as a letter
+        "[3] 0:h- 1:bash*   pi-sw2-p46 10:50PM |",  # trailing OCR junk
+        "[3] 0:h- 1:bash*   pi-sw2-p46 10:S0PM",  # S for 5
+        "[3] 0:h- 1:bash*   pi-sw2-p46 l0:50PM",  # l for 1
+        "[3] 0:h- 1:bash*   pi-sw2-p46 IO:5OPM",  # I for 1, O for 0
+        "[3] 0:h- 1:bash*   pi-sw2-p46 O8:BZPM",  # O for 0, B for 8, Z for 2
+        "[3] 0:h- 1:bash*   pi-sw2-p46 |0:50PM",  # | for 1
+        "[3] 0:h   pi-sw2-p46 10:50PM",  # one window only
+    ],
+)
+def test_the_last_row_is_recognised_as_a_status_line_by_shape(status):
+    assert read_shell_line(PROMPT + "[]\n" + status + "\n").state == "free"
+
+
+def test_a_status_line_is_only_ignored_on_the_last_row():
+    """A clock anywhere else is text: the same line above the last row is not a status line."""
+    screen = PROMPT + "[]\n" + STATUS + "\nsomething else\n"
+    assert read_shell_line(screen).state == "unknown"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        "[3] 0:h- 1:bash* pi-sw2-p46 garbled",  # tmux shape, no clock
+        "[3] pi-sw2-p46 10:50PM",  # no window entry
+        "[3] 0:h- 1:bash*",  # no host or clock
+        "pi-sw2-p46 10:50PM",  # host and clock only
+    ],
+)
+def test_a_last_row_that_is_not_the_whole_tmux_shape_is_not_a_status_row(row):
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state == "unknown"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        # a clock at the end is not what makes a status row: none of these may be dropped as one
+        "Connection to pi closed at 10:50",
+        "Connection to pi7 closed by remote host at 10:50PM",
+        "Broadcast message from root@pi7 (Sun 2026-10-04 22:00): the system is going down at 22:50",
+        "[  123.456789] eth0: link is down 10:50",
+        "Remote side unexpectedly dropped the session at 10:50",
+        "bash: /usr/bin/ls: Stale file handle 10:50",
+    ],
+)
+def test_a_fault_ending_in_a_time_is_never_swallowed_as_the_status_row(row):
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state in ("broken", "unknown")
+
+
+def test_a_fault_matching_a_broken_pattern_is_checked_before_the_status_shape():
+    """Even a row with the whole tmux shape is not discarded if a fault pattern matches it.
+
+    Here a window happens to be named "error": the broken check comes first, so the row
+    stays in the screen and the result is a failure, not a silent drop.
+    """
+    row = "[3] 0:h- 1:error* pi7 10:50PM"
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state == "broken"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        "Connection to pi closed at 10:50",
+        "Broadcast message from root@pi7 (Sun 2026-10-04 22:00): the system is going down at 22:50",
+        "[  123.456789] eth0: link is down 10:50",
+    ],
+)
+def test_run_types_nothing_and_fails_for_a_fault_ending_in_a_time(row):
+    page, term = _ready_terminal(PROMPT + "[]\n" + row + "\n")
+
+    with pytest.raises(TerminalLost) as caught:
+        term.run("hostname", settle=0)
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert page.keyboard.pressed == []
+
+
+def test_the_read_quotes_what_it_judged():
+    line = read_shell_line(PROMPT + "sudo apt install pipx\n" + STATUS + "\n")
+    assert line.state == "busy" and line.text == "sudo apt install pipx"
+
+
+def test_run_fails_and_types_nothing_for_a_closed_session_under_the_prompt():
+    """The stale-NFS breakage and a dropped session look like text under the prompt; they are not a visitor."""
+    page, term = _ready_terminal(PROMPT + "[]\nbash: /usr/bin/ls: Stale file handle\n" + STATUS + "\n")
+
+    with pytest.raises(TerminalLost, match="Stale file handle") as caught:
+        term.run("hostname", settle=0)
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert page.keyboard.pressed == []
+
+
+def test_the_busy_reason_quotes_the_screen_it_was_judged_from():
+    page, term = _ready_terminal(PROMPT + "sudo apt install pipx\n" + STATUS + "\n")
+
+    with pytest.raises(TerminalBusy) as caught:
+        term.run("hostname", settle=0)
+
+    assert "the screen reads" in str(caught.value) and "pi-sw2-p46" in str(caught.value)
+    assert page.keyboard.pressed == []

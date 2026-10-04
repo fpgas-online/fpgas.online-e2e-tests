@@ -31,4 +31,5 @@ addopts = "-ra --strict-markers"
 markers = [
     "claim_only(reason): this control cannot be verified by ground truth; say why",
     "live: talks to a production site",
+    "disruptive: changes a public board (reprograms the FPGA, cuts its power); skipped unless --disruptive is given",
 ]

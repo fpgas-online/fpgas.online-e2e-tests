@@ -326,3 +326,41 @@ def test_with_disruptive_an_arty_runs_both_disruptive_journeys_last(monkeypatch)
     row = audit_board(_FakeSession(Board("pi-sw1-p2", 2, "Digilent Arty A7-35T")), known_hosts=None, disruptive=True)
     assert called[-2:] == ["upload_programs_the_board", "reset_power_cycles_the_board"]
     assert not any(c.skipped for c in row.checks)
+
+
+def test_a_busy_terminal_is_a_skipped_cell_with_the_reason_not_a_failure():
+    from e2e.terminal import TerminalBusy
+
+    def visitor_typing(_log):
+        raise TerminalBusy("a visitor is using the terminal: 'ls' is on the shell's line, so nothing was typed")
+
+    cell = run_journey("terminal", visitor_typing)
+    assert cell.skipped and not cell.passed
+    assert cell.cell == "skipped"
+    assert "a visitor is using the terminal" in cell.detail
+    row = BoardAudit(PI7, [cell])
+    assert row.failures == []
+    assert "a visitor is using the terminal" in render_text("ps1", [row], when=WHEN)
+
+
+def test_a_dead_terminal_is_still_a_failed_cell():
+    from e2e.terminal import TerminalLost
+
+    def dead(_log):
+        raise TerminalLost("no shell prompt line is visible")
+
+    cell = run_journey("terminal", dead)
+    assert not cell.skipped and not cell.passed
+    assert "TerminalLost" in cell.detail
+
+
+def test_a_busy_terminal_does_not_hide_a_failure_the_journey_already_recorded():
+    from e2e.terminal import TerminalBusy
+
+    def failed_then_busy(log):
+        log.claim("the status box said so", False, detail="it did not")
+        raise TerminalBusy("a visitor is using the terminal: 'ls'")
+
+    cell = run_journey("terminal", failed_then_busy)
+    assert not cell.skipped and not cell.passed
+    assert "the status box said so" in cell.detail

@@ -21,7 +21,15 @@ import pexpect
 
 from e2e import ocr
 from e2e.sshbanner import password_from_banner
-from e2e.terminal import DEFAULT_PROMPT, at_a_prompt, strip_prompt_and_echo
+from e2e.terminal import (
+    DEFAULT_PROMPT,
+    TerminalBusy,
+    TerminalLost,
+    WebTerminal,
+    at_a_prompt,
+    read_shell_line,
+    strip_prompt_and_echo,
+)
 
 _HOST_KEY_QUESTION = r"\(yes/no(?:/\[fingerprint\])?\)\?"
 _PASSWORD_PROMPT = r"[Pp]assword:"
@@ -71,6 +79,24 @@ def banner_from(printed: str) -> str:
     text = re.sub(r"Warning: Permanently added[^\n]*\n?", "", text)
     text = re.sub(r"\S+@[\w.-]+'s\s+" + _PASSWORD_PROMPT + r".*$", "", text, flags=re.DOTALL)
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+
+def refuse_if_line_busy(login_text: str) -> None:
+    """Send nothing unless the shell's line is free: TerminalBusy for a visitor, TerminalLost for a fault.
+
+    The ssh login may attach to a tmux session other visitors share, so
+    `sendline` would append to their half-typed command and press Enter on
+    it. What tmux painted on attaching shows the line. No visible prompt
+    line is left to the caller, which has already looked for a prompt.
+    """
+    line = read_shell_line(login_text)
+    if line.state == "busy":
+        raise TerminalBusy(WebTerminal.busy_reason(line.text, login_text))
+    if line.state in ("broken", "unknown"):
+        raise TerminalLost(
+            f"nothing was sent: the shell's line is {line.state} ({line.text!r}); "
+            f"the login painted {ocr.normalise(login_text)[-300:]!r}"
+        )
 
 
 def _read_until(child, done, timeout: float, quiet: float = 1.0) -> str:
@@ -145,6 +171,9 @@ def log_in_with_the_printed_command(
 
         text = _read_until(child, lambda t: at_a_prompt(t, prompt), timeout)
         transcript += text
+        # A prompt line with someone's text after it never matches at_a_prompt,
+        # so this has to be told apart from "no shell" first: that is a visitor.
+        refuse_if_line_busy(ocr.strip_ansi(text))
         if not at_a_prompt(ocr.strip_ansi(text), prompt):
             raise SshFailed(f"no shell prompt after typing the banner's password; saw {ocr.normalise(text)!r}")
 

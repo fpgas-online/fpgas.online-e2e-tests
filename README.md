@@ -36,10 +36,86 @@ Then:
     xvfb-run -a uv run pytest tests/shared --site welland      # against production
     xvfb-run -a uv run pytest tests/shared --site ps1
     xvfb-run -a uv run pytest tests/shared --site welland --seed 1234 --on-dead retry
-    uv run pytest tests/shared --site welland -k power_cycle   # on a desktop: watch it
+    uv run pytest tests/shared --site welland --disruptive -k power_cycle   # on a desktop: watch it
 
 `--site` takes `welland` or `ps1`. Each run prints the random seed it used, so
 a failure can be replayed against the same board with `--seed`.
+
+## What runs on the schedule, and what `--disruptive` adds
+
+The workflow runs every six hours on one randomly chosen board per site, and
+it never power-cycles or reprograms a board unattended. Tests marked
+`@pytest.mark.disruptive` are skipped unless `--disruptive` is given (one hook
+in `tests/conftest.py`), with the reason "needs --disruptive", listed in the
+pytest summary as skipped, never as passed. Two tests carry the marker: the
+bitstream upload (reprograms the FPGA) and the power cycle (Reset: PoE off,
+the Pi reboots, the video is gone for minutes, and on some boards the camera
+focus is lost until someone restores it). The scheduled run and a plain manual
+dispatch pass no `--disruptive`; tick the `disruptive` box on the "Run
+workflow" form to pass it to the `shared` job. The audit has its own
+`audit_disruptive` box.
+
+What a scheduled run still does to the chosen board: it loads the index page
+and the board's page and opens the page's web terminal and camera (reads);
+reaches the camera by the page's own "reset video player" and Play buttons if
+the player is stuck (nothing on the Pi); types `hostname` and `uptime -p`
+into the shared tmux session, which land in that shell's history and on the
+screen of anyone watching; and makes one ssh login with the banner's
+password, typing `hostname`, which is a second client on the same tmux
+session. It does not click "Check PoE", Reset, or the upload form.
+
+The suite does not assume it has the terminal to itself. Typing appends to
+whatever is on the shell's line and Enter runs it, so before typing, in the
+web terminal and after the ssh login, the suite reads the screen. Whether a
+visitor can be on our line at all is not shown by this repo: the Pis'
+`zprofile` (fpgas.online-setup-pi, `onpi/tmux`) says each login is a new
+window in a shared tmux session group, which would give our login a fresh
+prompt, but the suite has not observed which of the two happens. The guard
+costs nothing, so it stays. What it does, in plain terms:
+
+- **A visitor is using the terminal: the test is skipped, nothing is typed.**
+  Only this skips: the shell's last prompt line has anything after it other
+  than the cursor block (a lone `|`, `_`, `[` or `l` counts as text), with
+  at most unremarkable output under it, which is what a half-typed or
+  running command looks like. The skip reason reads "a visitor is using the
+  terminal: ..." and quotes the screen it was judged from; `-ra` lists it. This
+  applies in the `board_page` fixture, in the web terminal, and after the ssh
+  login. In the audit the cell reads "skipped" with that reason.
+- **Everything else that is not a free line fails, quoting the screen.** No
+  prompt line at all (a login form, "Authentication failed.", a prompt that
+  was there moments ago and is gone), and text under the prompt that is a
+  closed session, an error or a system message ("Connection to ... closed",
+  "Stale file handle", "Input/output error", a broadcast, a kernel line,
+  "Read-only file system") or that the suite does not recognise. When in
+  doubt it fails: a skip hides a broken board, a failure gets looked at.
+- **The camera is checked before the terminal**, so a busy terminal cannot
+  hide a board whose picture is dead.
+- **A skip never hides a failure**: if the test had already recorded evidence
+  that did not hold, it fails instead of skipping.
+- The tmux status line is ignored. It is the last row and must have the whole
+  shape (session number, at least one `<digit>:<name>` window, host, clock);
+  a clock at the end of a line is not enough, and a row that reads as a fault
+  is never taken for it. OCR dropping brackets or flags, or reading digits as
+  lookalikes (`O`, `l`, `S`, `B`, `Z`), is tolerated. If the row is mangled
+  beyond that the result is a failure, not a skip.
+
+What still fails by design, and why. The rule is "when in doubt, fail": a skip
+hides a broken board and a failure gets looked at. So these fail and do not
+skip: a full-screen program (a REPL, `less`, `htop`) or a wrapped prompt, where
+no prompt row is on screen; text under an empty prompt the suite does not
+recognise; and a visitor's command whose output under the typed line contains
+an error pattern ("error", "failed", "Permission denied", ...). Each login
+should get its own tmux window, so these should be rare; if one recurs on a
+board, look at the screen quoted in the failure.
+
+**A board that is skipped as busy on every scheduled run needs a look**: a
+suite that always skips tests nothing. Read the screen quoted in the skip
+reason (it is in the job log and the `-ra` summary): it is either a real
+long-running command, or a prompt this suite misreads.
+
+The read can be fooled in both directions by OCR; the design accepts a
+spurious skip or failure but not a typed command. A visitor who starts typing
+in the few milliseconds between the look and the keystrokes is not detected.
 
 ## Auditing a whole site
 
@@ -95,10 +171,11 @@ reason no stronger evidence is possible.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md).
 
-These tests run against the **live production** service. They have real,
-user-visible side effects: a board gets power-cycled, an FPGA gets
-reprogrammed. One board is picked at random per run, so any given board is
-touched rarely.
+These tests run against the **live production** service. Without
+`--disruptive` their side effects are the small ones listed under "What runs
+on the schedule"; with it, a board gets power-cycled and an FPGA gets
+reprogrammed, so use it by hand and not on a schedule. One board is picked at
+random per run.
 
 ## Licence
 

@@ -11,6 +11,7 @@ from e2e import journeys
 
 
 @pytest.mark.live
+@pytest.mark.disruptive
 def test_reset_button_power_cycles_the_board(board_page, evidence):
     session = board_page()
     journeys.reset_power_cycles_the_board(session, evidence)

@@ -15,6 +15,7 @@ from e2e import journeys
 
 
 @pytest.mark.live
+@pytest.mark.disruptive
 def test_uploaded_bitstream_programs_the_fpga_and_changes_the_leds(board_page, evidence):
     session = board_page()
     if journeys.loadable_for(session.board) is None:

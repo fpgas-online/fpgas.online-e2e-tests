@@ -17,6 +17,7 @@ from collections.abc import Callable
 
 from e2e.board import Board
 from e2e.evidence import EvidenceLog
+from e2e.terminal import TerminalBusy
 
 COLUMNS = ("page", "camera", "terminal", "poe status", "ssh", "upload", "power cycle")
 
@@ -84,6 +85,13 @@ def run_journey(
     started = time.monotonic()
     try:
         result = journey(log)
+    except TerminalBusy as exc:
+        # A visitor is using the terminal and nothing was typed: not a fault
+        # in the board, so the cell reads "skipped" with the reason, unless
+        # the journey had already recorded something that did not hold.
+        if not log.failures:
+            return Check(name=name, passed=False, detail=str(exc), seconds=time.monotonic() - started, skipped=True)
+        crashed = f"{type(exc).__name__}: {exc}"
     except AssertionError as exc:
         # A failed ground truth is already in the log. Any other assertion is
         # not, and must not vanish.

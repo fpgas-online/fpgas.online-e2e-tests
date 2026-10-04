@@ -23,6 +23,7 @@ import difflib
 import io
 import re
 import time
+from typing import NamedTuple
 
 from PIL import Image
 
@@ -85,6 +86,105 @@ def describe_busy_shell(screen: str) -> str:
     if match is None:
         return ""
     return f"the last prompt has a command after it that has not returned: {match.group('typed')!r}; "
+
+
+class TerminalBusy(RuntimeError):
+    """A visitor is using the shared terminal: their text is on the prompt line.
+
+    Nothing was typed. The message is the reason a test is skipped with, so it
+    says so in the words a person reads in the summary.
+    """
+
+
+class TerminalLost(RuntimeError):
+    """The shell's line is not free and it is not a visitor's: dead, broken or unrecognised.
+
+    A failure, never a skip. The message quotes the screen.
+    """
+
+
+_PROMPT_LINE = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#](?:[ \t]+(?P<typed>\S.*?))?[ \t]*$")
+# The one form the cursor takes after a prompt as OCR reads it: xterm's filled
+# block comes out as "[]" (captured from ps1 pi7 on 2026-09-13, "$ []"). It is
+# the only thing allowed after the prompt on a line counted as free. A lone
+# "|", "_", "[" or "l" is just as likely a visitor's first keystroke, and
+# a command typed over theirs is worse than a skipped test.
+CURSOR_TOKEN = "[]"
+
+# tmux's status line is the last row of the screen. What it looks like comes
+# from fpgas.online-setup-pi (onpi/tmux/tmux.conf): "[<session number>] ", a
+# window list with one window per login ("0:h- 1:bash*"), then status-right
+# `#(hostname -s) #(date +"%I:%M%p")`: "pi-sw2-p46 10:50PM". A row is a status
+# row only if it has that whole shape, session, at least one `<digit>:<name>`
+# window, host, clock at the end; a bare clock at the end of a line proves
+# nothing (a closed-connection or kernel message can end in one). OCR drops
+# or mangles the brackets and flags, and reads digits as lookalikes (O for 0,
+# l I | for 1, S for 5, B for 8, Z for 2), all tolerated here.
+_DIGIT = r"[\dOoIl|SsBZz]"
+_CLOCK = rf"{_DIGIT}{{1,2}}\s*[:.;]\s*{_DIGIT}{{2}}\s*(?:[APap][MmNn])?[\s|\]_]*"
+_WINDOW = r"[\dOoIl|]\s*:\s*[\w.-]+[*#!~-]?"
+_STATUS_ROW = re.compile(
+    rf"^[\[(|]?[\w-]{{1,16}}?[\])|]?\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$"
+)
+
+# Text under the prompt that is a closed session, an error or a system message.
+# A visitor's running command can print any of it, so on a line with typed text
+# it takes the verdict away from "busy": a skip would hide a broken board.
+_BROKEN = re.compile(
+    r"connection (?:to .+ )?(?:closed|lost|reset|refused|timed out)|stale file handle|input/output error"
+    r"|broadcast message|^\[\s*\d+\.\d+\]|read-only file system|going down|kernel panic|segmentation fault"
+    r"|no space left|authentication failed|permission denied|disconnected|\bfailed\b|\berror\b|\bkilled\b",
+    re.IGNORECASE,
+)
+
+
+class ShellLine(NamedTuple):
+    """What the screen says about the shell's current line.
+
+    state:
+      free     nothing after the last prompt, or exactly the cursor token
+      busy     text on the prompt line itself (a half-typed or running command),
+               with at most unremarkable output under it: a visitor
+      broken   text under the prompt that is a closed session, an error or a
+               system message
+      unknown  text under an empty prompt that is not recognised
+      none     no prompt line is visible at all
+    Only `busy` is a visitor. Everything else that is not `free` is a fault
+    to fail on, quoting the screen: a skip hides a broken board.
+    """
+
+    state: str
+    text: str
+
+
+def _is_status_row(line: str) -> bool:
+    """The whole tmux shape, and never a line that reads as a fault: a broken line is not discarded
+    whatever its shape."""
+    return _BROKEN.search(line) is None and _PROMPT_LINE.search(line) is None and _STATUS_ROW.match(line) is not None
+
+
+def read_shell_line(screen: str) -> ShellLine:
+    """Classify the screen: is the shell's line free, a visitor's, or a fault? See ShellLine."""
+    lines = [line.strip() for line in ocr.strip_ansi(screen).splitlines() if line.strip()]
+    if lines and _is_status_row(lines[-1]):
+        lines.pop()
+    below: list[str] = []
+    for line in reversed(lines):
+        match = _PROMPT_LINE.search(line)
+        if match is None:
+            below.append(line)
+            continue
+        below.reverse()
+        typed = match.group("typed") or ""
+        if typed == CURSOR_TOKEN:
+            typed = ""
+        text = " ".join([typed, *below]).strip()
+        if any(_BROKEN.search(under) for under in below):
+            return ShellLine("broken", text)
+        if typed:
+            return ShellLine("busy", text)
+        return ShellLine("unknown" if below else "free", text)
+    return ShellLine("none", "")
 
 
 def at_a_prompt(text: str, prompt: str = DEFAULT_PROMPT) -> bool:
@@ -233,6 +333,9 @@ class WebTerminal:
                     return
                 next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
+        line = read_shell_line(self._last_screen)
+        if line.state == "busy":
+            raise TerminalBusy(self.busy_reason(line.text, self._last_screen))
         raise TimeoutError(
             f"no shell prompt within {timeout}s; {describe_busy_shell(self._last_screen)}"
             f"the screen reads {ocr.normalise(self._last_screen)[-600:]!r} "
@@ -339,15 +442,54 @@ class WebTerminal:
         frame.locator(".xterm-screen").click()
         return frame
 
+    @staticmethod
+    def busy_reason(typed: str, screen: str) -> str:
+        """The skip reason: names the visitor's text and quotes the screen it was judged from.
+
+        The screen is quoted so that a board skipped as busy on every
+        scheduled run, which would silence the suite, can be seen for what it is.
+        """
+        return (
+            f"a visitor is using the terminal: {typed!r} is on the shell's line, so nothing was typed; "
+            f"the screen reads {ocr.normalise(screen)[-300:]!r}"
+        )
+
+    def refuse_if_busy(self) -> None:
+        """Type nothing unless the shell's line is free: raise TerminalBusy or TerminalLost.
+
+        The terminal may be a tmux session shared with other visitors. Typing
+        appends to whatever is on the line and Enter runs the lot, so a
+        visitor's half-typed `sudo apt install x` would be executed with our
+        text glued onto it. Looking at the screen costs nothing.
+
+        Only text on the prompt line itself (see read_shell_line) is a
+        visitor: TerminalBusy. Everything else that is not a free line, no
+        prompt, a closed session, an error or system message under the
+        prompt, or text not recognised, is TerminalLost, a failure quoting
+        the screen. (A visitor who starts typing in the few milliseconds
+        between this look and the keystrokes cannot be detected.)
+        """
+        screen = self._ocr_visible()
+        line = read_shell_line(screen)
+        if line.state == "busy":
+            raise TerminalBusy(self.busy_reason(line.text, screen))
+        if line.state != "free":
+            raise TerminalLost(
+                f"nothing was typed: the shell's line is {line.state} ({line.text!r}); "
+                f"the screen reads {ocr.normalise(screen)[-300:]!r}"
+            )
+
     def run(self, command: str, timeout: float = 30.0, settle: float = 1.5) -> TerminalOutput:
         """Type a command, wait for the prompt, and read the output three ways.
 
-        Raises TimeoutError if the prompt does not come back: a command that
+        Raises TerminalBusy or TerminalLost, typing nothing, unless the
+        shell's line is free (see refuse_if_busy). Raises TimeoutError if the prompt does not come back: a command that
         is still running is not a command whose output can be read, and
         typing the next one into it would feed a hung process.
         """
         self.wait_for_terminal()
-        self._focus()
+        self._focus()  # a click inside the terminal: types nothing, and the cursor then draws as it does for a person
+        self.refuse_if_busy()  # immediately before the keystrokes
         mark = len(self._frames)
         self.page.keyboard.type(command)
         self.page.keyboard.press("Enter")

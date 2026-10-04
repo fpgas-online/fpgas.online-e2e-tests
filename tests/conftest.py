@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from e2e.audit import NEEDS_DISRUPTIVE
 from e2e.evidence import EvidenceLog
 from e2e.picker import OnDead
 from e2e.site import Site
@@ -19,8 +20,9 @@ def pytest_addoption(parser):
     parser.addoption(
         "--disruptive",
         action="store_true",
-        help="audit: also upload a bitstream and power cycle every board (public boards others may be using); "
-        "without it those cells read 'skipped: needs --disruptive'",
+        help="also run what changes a public board others may be using: the bitstream upload (reprograms the "
+        "FPGA) and the power cycle (cuts PoE). Without it the audit's cells read 'skipped: needs --disruptive' "
+        "and tests marked @pytest.mark.disruptive are skipped with that reason",
     )
     parser.addoption(
         "--quick",
@@ -32,6 +34,23 @@ def pytest_addoption(parser):
         default="",
         help="audit only these boards, by hostname (comma separated); for development runs",
     )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip every test marked `disruptive` unless --disruptive was given.
+
+    The one place the option gates tests, so a new disruptive test needs only
+    the marker. Skipping at collection means the test never starts: it does
+    not even open the board's page. The reason is the audit's wording
+    (e2e.audit.NEEDS_DISRUPTIVE), and -ra (pyproject addopts) lists it in the
+    summary, so a skipped test is never mistaken for a passed one.
+    """
+    if config.getoption("--disruptive"):
+        return
+    skip = pytest.mark.skip(reason=NEEDS_DISRUPTIVE)
+    for item in items:
+        if item.get_closest_marker("disruptive"):
+            item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")
