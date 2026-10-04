@@ -21,7 +21,7 @@ import pexpect
 
 from e2e import ocr
 from e2e.sshbanner import password_from_banner
-from e2e.terminal import DEFAULT_PROMPT, at_a_prompt, strip_prompt_and_echo
+from e2e.terminal import DEFAULT_PROMPT, TerminalBusy, at_a_prompt, strip_prompt_and_echo, text_after_last_prompt
 
 _HOST_KEY_QUESTION = r"\(yes/no(?:/\[fingerprint\])?\)\?"
 _PASSWORD_PROMPT = r"[Pp]assword:"
@@ -71,6 +71,21 @@ def banner_from(printed: str) -> str:
     text = re.sub(r"Warning: Permanently added[^\n]*\n?", "", text)
     text = re.sub(r"\S+@[\w.-]+'s\s+" + _PASSWORD_PROMPT + r".*$", "", text, flags=re.DOTALL)
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+
+def refuse_if_line_busy(login_text: str) -> None:
+    """Raise TerminalBusy if the login landed on a line someone else has typed on.
+
+    The ssh login attaches to the same shared tmux session as the web
+    terminal, so `sendline` would append to a visitor's half-typed command
+    and press Enter on it. What tmux painted on attaching shows the line.
+    """
+    typed = text_after_last_prompt(login_text)
+    if typed:
+        raise TerminalBusy(
+            f"not typing: the shared shell's prompt line is not empty, someone has {typed!r} on it; "
+            "typing would add to it and press Enter"
+        )
 
 
 def _read_until(child, done, timeout: float, quiet: float = 1.0) -> str:
@@ -148,6 +163,7 @@ def log_in_with_the_printed_command(
         if not at_a_prompt(ocr.strip_ansi(text), prompt):
             raise SshFailed(f"no shell prompt after typing the banner's password; saw {ocr.normalise(text)!r}")
 
+        refuse_if_line_busy(ocr.strip_ansi(text))
         outputs: dict[str, str] = {}
         for cmd in commands:
             child.sendline(cmd)

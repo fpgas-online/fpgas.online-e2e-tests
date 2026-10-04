@@ -34,3 +34,17 @@ def test_the_banner_survives_a_known_host_with_no_question():
 
 def test_an_empty_banner_is_empty():
     assert banner_from("pi@ps1.fpgas.online's password:") == ""
+
+
+def test_an_empty_prompt_line_after_login_is_free():
+    from e2e.sshclient import refuse_if_line_busy
+
+    refuse_if_line_busy("Last login: Sat Sep 12 from 10.21.0.1\r\n06:25:33 pi@pi2:~/Demos $ \r\n")
+
+
+def test_a_half_typed_command_after_login_is_refused_before_anything_is_sent():
+    from e2e.sshclient import refuse_if_line_busy
+    from e2e.terminal import TerminalBusy
+
+    with pytest.raises(TerminalBusy, match="sudo apt install pipx"):
+        refuse_if_line_busy("06:25:33 pi@pi2:~/Demos $ sudo apt install pipx\r\n")
