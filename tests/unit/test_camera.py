@@ -115,8 +115,22 @@ def test_check_stopped_fires_on_a_picture_that_really_sticks():
     assert "stuck at '15:59:07'" in detail
 
 
-def test_check_stopped_fires_when_the_picture_goes_dark():
+def test_check_stopped_does_not_take_an_unreadable_picture_as_evidence_of_stopping():
+    """Three Nones are three failures to read the overlay, not a board that lost power."""
+    cam = _FakeClock([None, None, None, None, None])
+    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
+    assert not stopped
+    assert "unreadable" in detail
+
+
+def test_check_stopped_does_not_take_a_clock_that_goes_unreadable_as_stopped():
     cam = _FakeClock(["15:59:01", None, None, None, None])
     stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
-    assert stopped
-    assert "no clock readable" in detail
+    assert not stopped
+    assert "unreadable" in detail
+
+
+def test_check_stopped_does_not_fire_on_an_advancing_clock():
+    cam = _FakeClock(["15:59:01", "15:59:04"])  # then the fake keeps stepping on by 3s
+    stopped, detail = cam.check_stopped(timeout=0.3, gap=0.0)
+    assert not stopped, detail

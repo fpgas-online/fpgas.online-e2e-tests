@@ -176,22 +176,42 @@ class Camera:
         about, which is what a buffer does, not what a dead board does.
 
         What a person sees when the power goes is a frame that sits there. So
-        require the same reading several times running -- or no readable clock
-        at all, which is the dark-player case -- before saying it stopped.
+        require a clock that was readable and then stays at one readable value
+        for several readings running. An unreadable reading is never evidence
+        of stopping: it may be OCR failing on a low-contrast overlay, a dark
+        player or a page error, and "the board lost power" must not be
+        concluded from "the clock could not be read". A check that only ever
+        saw unreadable readings reports that, as a failure of the check.
         """
         deadline = time.monotonic() + timeout
         seen: list[str | None] = []
+        run: list[str] = []  # consecutive identical readable readings
         while time.monotonic() < deadline:
             try:
-                seen.append(self.clock())
+                reading = self.clock()
             except Exception:  # noqa: BLE001 - an unreadable picture is a reading too
-                seen.append(None)
-            seen = seen[-consecutive:]
-            if len(seen) == consecutive and all(r == seen[0] for r in seen):
-                stuck = "no clock readable" if seen[0] is None else f"clock stuck at {seen[0]!r}"
-                return True, f"{stuck} across {consecutive} readings {gap}s apart"
+                reading = None
+            seen.append(reading)
+            if reading is None:
+                run = []
+            elif run and run[-1] != reading:
+                run = [reading]
+            else:
+                run.append(reading)
+            if len(run) >= consecutive:
+                return True, f"clock stuck at {run[0]!r} across {consecutive} readable readings {gap}s apart"
             time.sleep(gap)
-        return False, f"the picture never stuck within {timeout}s; last readings {seen}"
+        readable = [r for r in seen if r is not None]
+        if not readable:
+            return False, (
+                f"the clock was unreadable on all {len(seen)} readings within {timeout}s, "
+                "so whether the picture stopped cannot be told"
+            )
+        unreadable = len(seen) - len(readable)
+        return False, (
+            f"the picture never stuck at one readable clock value within {timeout}s; "
+            f"last readings {seen[-6:]} ({unreadable} of {len(seen)} unreadable)"
+        )
 
     def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
         """Did the picture come alive within the timeout? Reports, never raises.
