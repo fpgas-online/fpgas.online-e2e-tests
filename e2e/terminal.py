@@ -125,7 +125,13 @@ _CLOCK = rf"{_DIGIT}{{1,2}}\s*[:.;]\s*{_DIGIT}{{2}}\s*(?:[APap][MmNn])?[\s|\]_]*
 # The session is a NUMBER (tmux's default session name; the older captures
 # are "default-<number>"), so "[exited]" or a word is not one. A window name
 # has a letter in it ("h", "bash"): "0:30" is a time, not a window.
-_SESSION = rf"[\[(|]?(?:default-)?{_DIGIT}{{1,4}}[\])|]?"
+# Without a bracket or the "default-" prefix it needs a real digit, because a
+# word made only of lookalike letters ("Boss", "Isis") is not a number.
+_SESSION = (
+    rf"(?:[\[(|]{_DIGIT}{{1,4}}[\])|]?"
+    rf"|[\[(|]?default-{_DIGIT}{{1,4}}[\])|]?"
+    rf"|(?=[\dOoIl|SsBZz]{{0,3}}\d){_DIGIT}{{1,4}}[\])|]?)"
+)
 _WINDOW = r"[\dOoIl|]\s*:\s*(?=[\w.-]*[A-Za-z])[\w.-]+[*#!~MZ-]?"
 _STATUS_ROW = re.compile(rf"^{_SESSION}\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$")
 

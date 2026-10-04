@@ -512,6 +512,8 @@ def test_a_last_row_that_is_not_the_whole_tmux_shape_is_not_a_status_row(row):
         "Next 0:30 pi7 10:50PM",  # no session number; "30" is a time, not a window name
         "[3] 0:30 pi7 10:50PM",  # a window name has a letter in it
         "[main] 0:h 1:bash* pi7 10:50PM",  # a named session is not the one tmux.conf creates
+        "Boss 0:h pi7 10:50PM",  # a word made only of letters OCR reads as digits is not a number
+        "Isis 0:h pi7 10:50PM",
     ],
 )
 def test_a_row_with_only_the_look_of_a_status_line_is_not_dropped_as_one(row):
