@@ -19,7 +19,7 @@ from pathlib import Path
 from e2e.evidence import EvidenceLog
 from e2e.session import BoardSession
 from e2e.sshbanner import parse_instructions
-from e2e.sshclient import SshFailed, log_in_with_the_printed_command
+from e2e.sshclient import SshFailed, SshUnreachable, log_in_with_the_printed_command
 
 # /proc/uptime is exactly two floats on one line: seconds up, seconds idle.
 # Anchored, because an unanchored number picks up the clock in the prompt
@@ -123,8 +123,12 @@ def poe_status_is_reported(session: BoardSession, evidence: EvidenceLog, timeout
     return state
 
 
-class SshNoLogin(AssertionError):
-    """The ssh command the page prints gave no login. Nothing else: not a wrong board, not a page that failed."""
+class SshPortUnreachable(AssertionError):
+    """The ssh port the page prints could not be reached at all (refused, timed out, no route, or silence).
+
+    Nothing else: not a name that does not resolve, a refused password, a banner without a
+    password, a missing prompt, a wrong board, or a page that failed.
+    """
 
 
 def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: Path, timeout: float = 30.0) -> None:
@@ -139,12 +143,12 @@ def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: 
     command = instructions.ssh_command
     try:
         login = log_in_with_the_printed_command(command, ["hostname"], known_hosts, timeout=timeout)
-    except SshFailed as exc:
+    except SshUnreachable as exc:
         evidence.ground_truth(
-            f"`{command}` logs in with the banner's password", False, detail=str(exc), error=SshNoLogin
+            f"`{command}` logs in with the banner's password", False, detail=str(exc), error=SshPortUnreachable
         )
         return
-    except ValueError as exc:  # the page printed something that is not an ssh command: a different failure
+    except (SshFailed, ValueError) as exc:  # reached the port but no login, or not an ssh command: other failures
         evidence.ground_truth(f"`{command}` logs in with the banner's password", False, detail=str(exc))
         return
     evidence.ground_truth(

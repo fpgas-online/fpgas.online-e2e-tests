@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from e2e.journeys import SshNoLogin
+from e2e.journeys import SshPortUnreachable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,12 +42,12 @@ ROOT = Path(__file__).parents[1]
 KNOWN_FAILURES: dict[tuple[str, str], KnownFailure] = {
     ("welland", "tests/shared/test_direct_ssh.py::test_ssh_instructions_on_the_page_let_you_log_in"): KnownFailure(
         reason=(
-            "the ssh command printed on the board page gives no login from outside the site: "
-            "the printed per-board port is not reachable. Tracked in fpgas-online/fpgas.online-infra#191 "
+            "the ssh command printed on the board page cannot reach its port from outside the site "
+            "(connection refused, timed out or silent). Tracked in fpgas-online/fpgas.online-infra#191 "
             "(https://github.com/fpgas-online/fpgas.online-infra/issues/191). "
             "Remove this entry when that issue is fixed"
         ),
-        raises=SshNoLogin,
+        raises=SshPortUnreachable,
     ),
 }
 
