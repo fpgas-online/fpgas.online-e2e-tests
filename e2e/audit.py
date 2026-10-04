@@ -165,8 +165,8 @@ def _stamp(when: dt.datetime | None) -> str:
 
 def render_text(site: str, rows: list[BoardAudit], when: dt.datetime | None = None) -> str:
     """A fixed-width table for the terminal, with the failures spelled out below it."""
-    widths = {c: max(len(c), *(len(r.check(c).cell) if r.check(c) else 1 for r in rows)) for c in COLUMNS}
-    name_width = max(len("board"), *(len(r.board.hostname) for r in rows))
+    widths = {c: max([len(c), *(len(r.check(c).cell) if r.check(c) else 1 for r in rows)]) for c in COLUMNS}
+    name_width = max([len("board"), *(len(r.board.hostname) for r in rows)])
     lines = [f"### {site}: {len(rows)} boards, audited {_stamp(when)}"]
     lines.append("  ".join(["board".ljust(name_width), *(c.ljust(widths[c]) for c in COLUMNS)]))
     for row in rows:

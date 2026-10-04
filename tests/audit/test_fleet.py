@@ -30,9 +30,10 @@ def test_every_board_at_the_site(
 ):
     page.goto(site.index_url, wait_until="domcontentloaded")
     boards = parse_boards(page.content())
+    assert boards, f"the index page at {site.index_url} lists no boards, so there is nothing to audit"
     evidence.claim(
         "the index page lists at least one board",
-        bool(boards),
+        True,
         detail=f"listed: {[b.hostname for b in boards]}",
     )
     if boards_wanted:

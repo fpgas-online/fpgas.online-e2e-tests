@@ -174,3 +174,8 @@ def test_an_acorn_has_no_bitstream_so_the_audit_marks_its_upload_skipped():
 
     assert journeys.loadable_for(_Session.board) is None
     assert "acorn" in journeys.no_bitstream_reason(_Session.board)
+
+
+def test_rendering_zero_rows_does_not_raise():
+    assert "0 boards" in render_text("ps1", [], when=WHEN)
+    assert "0 boards" in render_markdown("ps1", [], when=WHEN)
