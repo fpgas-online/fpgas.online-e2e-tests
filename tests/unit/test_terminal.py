@@ -4,8 +4,10 @@ from e2e.terminal import (
     DEFAULT_PROMPT,
     TerminalOutput,
     WebTerminal,
+    at_a_prompt,
     decode_wssh_frames,
     strip_prompt_and_echo,
+    without_cursor,
 )
 
 # Captured off wss://ps1.fpgas.online/wssh/ws on 2026-09-12. WebSSH sends the
@@ -91,66 +93,153 @@ def test_shows_rejects_an_empty_needle(needle):
         out.shows(needle)
 
 
-class _FakeClickable:
-    def click(self, **_kwargs):
-        pass
-
-
-class _FakeFrame:
-    def locator(self, _selector):
-        return _FakeClickable()
-
-
 class _FakeKeyboard:
-    def __init__(self, on_enter):
-        self._on_enter = on_enter
+    def __init__(self):
+        self.pressed = []
 
     def press(self, key):
-        if key == "Enter":
-            self._on_enter()
+        self.pressed.append(key)
+
+    def type(self, text):
+        self.pressed.append(text)
 
 
 class _FakePage:
-    """Just enough page for wait_for_prompt: a clickable terminal and a keyboard."""
+    """Just enough page for wait_for_prompt, and a keyboard that records abuse."""
 
-    def __init__(self, on_enter=lambda: None, focusable=True):
-        self.keyboard = _FakeKeyboard(on_enter)
-        self._focusable = focusable
-        self.enters = 0
+    def __init__(self):
+        self.keyboard = _FakeKeyboard()
+        self.clicks = []
 
-    def frame_locator(self, _selector):
-        if not self._focusable:
-            raise RuntimeError("no terminal to click: the iframe is still connecting")
-        return _FakeFrame()
+    def click(self, selector):
+        self.clicks.append(selector)
 
     def wait_for_timeout(self, _ms):
         pass
 
 
-def test_wait_for_prompt_presses_enter_when_the_shell_is_already_sitting_at_one():
-    """An idle shell has nothing left to say.
+def _terminal(page, frames, screen):
+    term = WebTerminal.__new__(WebTerminal)
+    term.frame_selector = "#wssh_if"
+    term.prompt = DEFAULT_PROMPT
+    term._frames = list(frames)
+    term._last_screen = ""
+    term.page = page
+    term._ocr_visible = lambda: screen
+    return term
 
-    After reset(), or after navigating back to the page, the prompt was printed
-    before we started reading and the only new bytes are tmux repainting its
-    status bar. Pressing Enter is what a person does when unsure a terminal is
-    alive, and it makes the shell print a fresh prompt we can see.
+
+def test_wait_for_prompt_believes_the_screen_when_the_socket_is_silent():
+    """A shell already at a prompt has nothing left to say.
+
+    After reset(), or after navigating back, the prompt was printed before
+    this buffer started and the only new bytes are tmux repainting its status
+    bar -- but the prompt is plainly there on screen, which is what a person
+    judges by.
     """
-    terminal = WebTerminal.__new__(WebTerminal)
-    terminal.frame_selector = "#wssh_if"
-    terminal.prompt = DEFAULT_PROMPT
-    terminal._frames = [b"\x1b[30m\x1b[42m\x1b[24;1H[default-20:bash*    pi7 01:43am\x1b(B\x1b[m"]
-    terminal.page = _FakePage(on_enter=lambda: terminal._frames.append(b"\r\npi@pi7:~ $ "))
+    page = _FakePage()
+    status_bar_only = [b"\x1b[30m\x1b[42m\x1b[24;1H[default-20:bash*    pi7 01:43am\x1b(B\x1b[m"]
+    term = _terminal(page, status_bar_only, screen="07:04:46 pi@pi7:~ $ \n")
 
-    terminal.wait_for_prompt(timeout=2.0, nudge_after=0.0)
+    term.wait_for_prompt(timeout=2.0)
 
 
-def test_wait_for_prompt_survives_a_terminal_that_is_not_clickable_yet():
-    """The nudge must never turn a timeout into a different, misleading error."""
-    terminal = WebTerminal.__new__(WebTerminal)
-    terminal.frame_selector = "#wssh_if"
-    terminal.prompt = DEFAULT_PROMPT
-    terminal._frames = []
-    terminal.page = _FakePage(focusable=False)
+def test_wait_for_prompt_never_types_into_a_shared_session():
+    """The terminal is a shared tmux session.
+
+    Pressing Enter to make an idle shell print a prompt would submit whatever
+    another person has half-typed on that line. Looking costs nothing.
+    """
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
 
     with pytest.raises(TimeoutError):
-        terminal.wait_for_prompt(timeout=0.5, nudge_after=0.0)
+        term.wait_for_prompt(timeout=0.5)
+
+    assert page.keyboard.pressed == []
+
+
+def test_wait_for_prompt_timeout_quotes_the_screen_and_the_socket():
+    """A person reporting a dead terminal says what it showed them."""
+    page = _FakePage()
+    term = _terminal(page, frames=[b"Authentication failed."], screen="socket closed.")
+
+    with pytest.raises(TimeoutError) as caught:
+        term.wait_for_prompt(timeout=0.5)
+
+    assert "socket closed." in str(caught.value)
+    assert "Authentication failed." in str(caught.value)
+
+
+def test_a_prompt_is_still_a_prompt_with_the_cursor_drawn_after_it():
+    """Captured from ps1 pi7 on 2026-09-13.
+
+    xterm draws the cursor as a filled block and tesseract reads it as "[]".
+    Left in place it defeated the end-of-line anchor, and the suite called a
+    terminal dead while quoting a screen with a prompt plainly on it.
+    """
+    screen = "07:26:16 pi@pi7:~ $ cat /proc/uptime\n835.20 3061.42\n07:38:03 pi@pi7:~ $ []\n"
+    assert not at_a_prompt(screen)
+    assert at_a_prompt(without_cursor(screen))
+
+
+def test_reconnect_clicks_reset_ssh_again_while_webssh_shows_its_login_form():
+    """After a power cycle the Pi is still booting, so the first click fails.
+
+    WebSSH falls back to a blank login form when auto-connect fails and then
+    sits there. That means "not yet", not "broken" -- the same click works
+    immediately on a healthy board -- so a person waits and clicks again.
+    """
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
+    term.wait_for_prompt = lambda timeout=60.0: None
+
+    attempts = []
+
+    def not_yet(timeout=60.0):
+        attempts.append(timeout)
+        if len(attempts) < 3:
+            raise TimeoutError("no terminal; the iframe reads 'Hostname Port Username Password ... Connect'")
+
+    term.wait_for_terminal = not_yet
+    term.reconnect(timeout=60.0, attempt=1.0)
+
+    assert page.clicks == ["#wssh-connect"] * 3
+
+
+def test_reconnect_gives_up_with_what_the_iframe_was_showing():
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
+
+    def never(timeout=60.0):
+        raise TimeoutError("no terminal; the iframe reads 'Hostname Port Username Password ... Connect'")
+
+    term.wait_for_terminal = never
+    with pytest.raises(TimeoutError) as caught:
+        term.reconnect(timeout=2.0, attempt=0.5)
+
+    assert "Hostname" in str(caught.value)
+
+
+def test_wait_until_usable_tries_again_when_the_channel_closes_after_connecting():
+    """Captured from ps1 pi7 after a real power cycle on 2026-09-13.
+
+    WebSSH connected, drew a prompt, and the channel closed moments later --
+    sshd accepts before the login wrapper can attach to the shared tmux
+    session. The iframe was left showing its login form and "chan closed".
+    """
+    page = _FakePage()
+    term = _terminal(page, frames=[], screen="")
+    term.reconnect = lambda timeout=60.0: None
+
+    tries = []
+
+    def flaky_run(command, timeout=30.0):
+        tries.append(command)
+        if len(tries) < 3:
+            raise TimeoutError("no terminal; the iframe reads '... Connect Reset\\nchan closed'")
+
+    term.run = flaky_run
+    term.wait_until_usable(timeout=60.0, settle=0.01)
+
+    assert tries == ["true"] * 3

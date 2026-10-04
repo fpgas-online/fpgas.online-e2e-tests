@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 from e2e import ocr
@@ -57,3 +59,25 @@ def test_looks_like_tolerates_a_few_ocr_errors():
 
 def test_looks_like_rejects_different_text():
     assert not ocr.looks_like("permission denied", "total 2192119 top.bit")
+
+
+# Captured from the live board pages on 2026-09-13, cropped at exactly
+# CLOCK_REGION -- the geometry the suite really hands to tesseract.
+# pi16's clock is white on a dark strip; pi37's is white on translucent grey
+# over an overexposed picture, which a person reads at a glance and which the
+# plain reader returned None for.
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "camera"
+
+
+def test_read_clock_reads_a_high_contrast_clock_off_a_real_board():
+    assert ocr.read_clock(Image.open(FIXTURES / "welland-pi16-clock.png")) == "5:44:30"
+
+
+def test_read_clock_reads_a_low_contrast_clock_off_a_real_board():
+    """The digits are grey-on-grey; a person reads them instantly.
+
+    When the human can read it and the machine cannot, the machine is what
+    needs fixing -- reporting a live camera as dead is a false fault report
+    about production.
+    """
+    assert ocr.read_clock(Image.open(FIXTURES / "welland-pi37-clock.png")) == "05:44:25"
