@@ -95,6 +95,8 @@ does, and an address no user can reach is not worth a test.
 
 ## Known production faults this suite reports
 
+> A record measured on 2026-09-14, before boards were named by hostname on 2026-10-04; the `pi<N>` names below are the old placement names.
+
 The state of both sites, as measured by the audit on 2026-09-14 with the
 same instrument on the same day. The full reports, with what was seen for
 every cell, are in [docs/audits/](audits/).
@@ -142,6 +144,8 @@ picture stuck at `05:02:57` for five readings, came back, and the Pi's
 uptime was 2004s before and less than the wait after).
 
 ### Later the same day: the quick audit at 05:39 UTC
+
+> A record measured on 2026-09-14, before boards were named by hostname on 2026-10-04; the `pi<N>` names below are the old placement names.
 
 `--quick` leaves out the upload and the power cycle. Run on both sites after
 the camera instrument was corrected (see the reliability section below) and
