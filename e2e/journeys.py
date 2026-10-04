@@ -198,7 +198,7 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
     clicked_at = time.monotonic()
     page.click(f"#reset{board.port}")
 
-    seen, detail = status.wait_for_new("reset: PoE", baseline, timeout=30)
+    seen, detail = status.wait_for_reset_report(baseline, timeout=30)
     evidence.claim("the status box reports the PoE port being switched", seen, detail=detail)
 
     stopped, detail = camera.check_stopped(timeout=120)

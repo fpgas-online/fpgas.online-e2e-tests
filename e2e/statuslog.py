@@ -12,12 +12,20 @@ import re
 import time
 
 # What the page writes (fpgas.online-site pistat static/dcws.js, show_poe_result):
-# "<what>: PoE <state>" after "Check PoE" ("status: PoE on") and
-# "<what>: PoE <a> then <b>" after Reset ("reset: PoE off then on"); the
-# status request is announced first as "checking status: <port>", which says
-# nothing about the state. The earlier wording, "snmp: get power on", is read
-# too: a box that still words it that way has still reported a state.
-_POE_REPORT = re.compile(r"\b(?:PoE|power)\s+((?:on|off)(?:\s+then\s+(?:on|off))*)\b", re.IGNORECASE)
+# "<time>: <what>: PoE <state>" with <what> "status" after "Check PoE" and
+# "reset" after Reset; after Reset the state is "<a> then <b>". The status
+# request is announced first as "checking status: <port>", which says nothing
+# about the state, and a failure is "<what> failed (<code>): <error>", which is
+# never a state. The box also carries other lines (websocket messages from the
+# Pi, kernel and dnsmasq text), so only the site's own line shape counts: the
+# whole line must end with the state. The time prefix is not matched (it is
+# toLocaleTimeString, so "22:33:11" or "10:33:11 PM"), only the space before
+# the word.
+_POE_REPORT = re.compile(
+    r"(?:^|\s)(?:status|reset): PoE ((?:on|off)(?: then (?:on|off))*)[ \t\r]*$", re.IGNORECASE | re.MULTILINE
+)
+# What a click on Reset adds to the box when the port was switched.
+RESET_REPORT = re.compile(r"(?:^|\s)reset: PoE (?:on|off) then (?:on|off)[ \t\r]*$", re.IGNORECASE | re.MULTILINE)
 
 
 class StatusLog:
@@ -48,8 +56,27 @@ class StatusLog:
             self.page.wait_for_timeout(500)
         return False, f"{needle!r} never appeared after the click; the box added: {added.strip()!r}"
 
+    def wait_for_reset_report(self, baseline: str, timeout: float = 30.0) -> tuple[bool, str]:
+        """Wait for "reset: PoE <a> then <b>" to be added after `baseline`: the port was switched."""
+        deadline = time.monotonic() + timeout
+        added = ""
+        while True:
+            current = self.text()
+            added = current[len(baseline) :] if current.startswith(baseline) else current
+            if RESET_REPORT.search(added):
+                return True, f"after the click the box said: {added.strip()!r}"
+            if time.monotonic() >= deadline:
+                return False, f"no 'reset: PoE ... then ...' appeared after the click; the box added: {added.strip()!r}"
+            self.page.wait_for_timeout(500)
+
     def wait_for_poe_state(self, baseline: str, timeout: float = 30.0) -> tuple[str, str]:
         """Wait for the box to report a PoE state that the click added.
+
+        The click writes "checking status: <port>" itself, but so does the
+        page when its socket opens, and that line cannot be told from the
+        click's, so a load-time answer landing after the baseline is not
+        excluded here; a refused or late answer still cannot pass, because
+        only a "status: PoE on/off" line counts.
 
         Returns (state, detail): "on" or "off", or "" with the reason when
         nothing that reads as a report arrived (an error line such as
