@@ -36,10 +36,40 @@ Then:
     xvfb-run -a uv run pytest tests/shared --site welland      # against production
     xvfb-run -a uv run pytest tests/shared --site ps1
     xvfb-run -a uv run pytest tests/shared --site welland --seed 1234 --on-dead retry
-    uv run pytest tests/shared --site welland -k power_cycle   # on a desktop: watch it
+    uv run pytest tests/shared --site welland --disruptive -k power_cycle   # on a desktop: watch it
 
 `--site` takes `welland` or `ps1`. Each run prints the random seed it used, so
 a failure can be replayed against the same board with `--seed`.
+
+## What runs on the schedule, and what `--disruptive` adds
+
+The workflow runs every six hours on one randomly chosen board per site, and
+it never power-cycles or reprograms a board unattended. Tests marked
+`@pytest.mark.disruptive` are skipped unless `--disruptive` is given (one hook
+in `tests/conftest.py`), with the reason "needs --disruptive", listed in the
+pytest summary as skipped, never as passed. Two tests carry the marker: the
+bitstream upload (reprograms the FPGA) and the power cycle (Reset: PoE off,
+the Pi reboots, the video is gone for minutes, and on some boards the camera
+focus is lost until someone restores it). The scheduled run and a plain manual
+dispatch pass no `--disruptive`; tick the `disruptive` box on the "Run
+workflow" form to pass it to the `shared` job. The audit has its own
+`audit_disruptive` box.
+
+What a scheduled run still does to the chosen board: it loads the index page
+and the board's page and opens the page's web terminal and camera (reads);
+reaches the camera by the page's own "reset video player" and Play buttons if
+the player is stuck (nothing on the Pi); types `hostname` and `uptime -p`
+into the shared tmux session, which land in that shell's history and on the
+screen of anyone watching; and makes one ssh login with the banner's
+password, typing `hostname`, which is a second client on the same tmux
+session. It does not click "Check PoE", Reset, or the upload form.
+
+The terminal is shared with every visitor, and typing appends to whatever is
+on the line before Enter runs it. So the suite looks at the screen first and
+types nothing, in the web terminal or over ssh, when the last prompt line has
+text after it or no prompt line is visible; the test is then skipped with the
+reason, not failed. (A visitor who starts typing in the few milliseconds
+between the look and the keystrokes is not detected.)
 
 ## Auditing a whole site
 
@@ -95,10 +125,11 @@ reason no stronger evidence is possible.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md).
 
-These tests run against the **live production** service. They have real,
-user-visible side effects: a board gets power-cycled, an FPGA gets
-reprogrammed. One board is picked at random per run, so any given board is
-touched rarely.
+These tests run against the **live production** service. Without
+`--disruptive` their side effects are the small ones listed under "What runs
+on the schedule"; with it, a board gets power-cycled and an FPGA gets
+reprogrammed, so use it by hand and not on a schedule. One board is picked at
+random per run.
 
 ## Licence
 
