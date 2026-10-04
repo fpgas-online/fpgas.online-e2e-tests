@@ -12,11 +12,12 @@ from pathlib import Path
 import pytest
 
 from e2e import known_failures, sshclient
-from e2e.journeys import SshPortUnreachable
+from e2e.journeys import SshBannerHasNoPassword, SshPortUnreachable
 
 pytest_plugins = ["pytester"]
 
-ISSUE = "https://github.com/fpgas-online/fpgas.online-infra/issues/191"
+ISSUE = "https://github.com/fpgas-online/fpgas.online-infra/issues/191"  # the nested table's example
+REAL_ISSUE = "https://github.com/fpgas-online/fpgas.online-infra/issues/215"  # the real table's entry
 REPO = Path(__file__).parents[2]
 REAL = "test_ssh_instructions_on_the_page_let_you_log_in"
 
@@ -26,7 +27,7 @@ import pathlib
 import pytest
 
 from e2e import known_failures
-from e2e.journeys import SshPortUnreachable
+from e2e.journeys import SshBannerHasNoPassword, SshPortUnreachable  # noqa: F401
 from tests.conftest import (  # noqa: F401
     _require_ground_truth,
     evidence,
@@ -45,7 +46,7 @@ def pytest_unconfigure(config):
 known_failures.ROOT = pathlib.Path(__file__).parent
 known_failures.KNOWN_FAILURES = {{
     ("welland", "test_ssh.py::{real}"): known_failures.KnownFailure(
-        reason="unreachable, tracked in {issue}", raises=SshPortUnreachable
+        reason="expected, tracked in {issue}", raises={raises}
     ),
     {extra}
 }}
@@ -140,8 +141,8 @@ EOF_ = 2
 TIMEOUT = 3
 
 
-def _run(pytester, site, setup, extra="", board_page="return lambda: Session()"):
-    pytester.makeconftest(CONFTEST.format(real=REAL, issue=ISSUE, extra=extra, board_page=board_page))
+def _run(pytester, site, setup, extra="", board_page="return lambda: Session()", raises="SshPortUnreachable"):
+    pytester.makeconftest(CONFTEST.format(real=REAL, issue=ISSUE, extra=extra, board_page=board_page, raises=raises))
     pytester.makeini("[pytest]\naddopts = -ra --strict-markers\nmarkers =\n    live: x\n    claim_only: x\n")
     test = TEST.format(real=REAL, setup=setup)
     pytester.makepyfile(
@@ -202,6 +203,43 @@ def test_on_ps1_the_same_unreachable_port_fails_normally(pytester, case):
     result = _run(pytester, "ps1", _setup(UNREACHABLE[case]))
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*SshPortUnreachable*"])
+
+
+# The same mechanism with the entry the real table carries now: the banner holds no password.
+
+
+def test_with_a_no_banner_password_entry_that_failure_is_xfailed(pytester):
+    result = _run(
+        pytester, "welland", _setup(REACHED["banner without a password"]), raises="SshBannerHasNoPassword"
+    )
+    result.assert_outcomes(xfailed=1)
+    result.stdout.fnmatch_lines([f"XFAIL*{ISSUE}*"])
+
+
+@pytest.mark.parametrize("case", sorted(set(REACHED) - {"banner without a password"}))
+def test_with_a_no_banner_password_entry_every_other_reached_failure_still_fails(pytester, case):
+    result = _run(pytester, "welland", _setup(REACHED[case]), raises="SshBannerHasNoPassword")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*logs in with the banner's password*"])
+
+
+@pytest.mark.parametrize("case", sorted(UNREACHABLE))
+def test_with_a_no_banner_password_entry_an_unreachable_port_fails(pytester, case):
+    result = _run(pytester, "welland", _setup(UNREACHABLE[case]), raises="SshBannerHasNoPassword")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*SshPortUnreachable*"])
+
+
+def test_with_a_no_banner_password_entry_a_login_that_works_fails_the_run_strictly(pytester):
+    result = _run(pytester, "welland", '_fake_login(monkeypatch, Login("pi-sw2-p46"))', raises="SshBannerHasNoPassword")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*XPASS(strict)*"])
+
+
+def test_on_ps1_a_banner_without_a_password_fails_normally(pytester):
+    result = _run(pytester, "ps1", _setup(REACHED["banner without a password"]), raises="SshBannerHasNoPassword")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*SshBannerHasNoPassword*"])
 
 
 def test_on_welland_a_login_that_works_fails_the_run_strictly(pytester):
@@ -301,14 +339,17 @@ def test_the_real_table_names_real_tests_and_the_issue_url():
         assert "https://github.com/" in entry.reason
 
 
-def test_the_real_table_has_the_welland_ssh_entry_only_for_welland_and_only_for_an_unreachable_port():
+def test_the_real_table_has_the_welland_ssh_entry_only_for_welland_and_only_for_a_banner_without_a_password():
     key = f"tests/shared/test_direct_ssh.py::{REAL}"
     entry = known_failures.KNOWN_FAILURES[("welland", key)]
-    assert ISSUE in entry.reason
-    assert entry.raises is SshPortUnreachable
+    assert REAL_ISSUE in entry.reason
+    assert entry.raises is SshBannerHasNoPassword
     assert ("ps1", key) not in known_failures.KNOWN_FAILURES
 
 
 def test_the_marker_exception_is_an_assertion_error_so_nothing_else_about_the_journey_changes():
     assert issubclass(SshPortUnreachable, AssertionError)
     assert issubclass(sshclient.SshUnreachable, sshclient.SshFailed)
+    assert issubclass(SshBannerHasNoPassword, AssertionError)
+    assert issubclass(sshclient.SshNoBannerPassword, sshclient.SshFailed)
+    assert not issubclass(sshclient.SshNoBannerPassword, sshclient.SshUnreachable)
