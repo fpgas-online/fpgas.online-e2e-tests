@@ -123,3 +123,19 @@ def test_a_login_that_reaches_no_prompt_at_all_is_still_an_ssh_failure_not_a_bus
 
     assert not isinstance(caught.value, TerminalBusy)
     assert child.sent == ["ship7ohT"]
+
+
+@pytest.mark.parametrize("under", ["Connection to pi7 closed.", "bash: /usr/bin/ls: Stale file handle"])
+def test_a_login_that_lands_on_a_fault_under_the_prompt_fails_and_sends_nothing(monkeypatch, tmp_path, under):
+    from e2e.terminal import TerminalBusy, TerminalLost
+
+    child = _FakeChild(f"03:29:00 pi@pi7:~ $ \r\n{under}\r\n")
+    monkeypatch.setattr(sshclient.pexpect, "spawn", lambda *args, **kwargs: child)
+
+    with pytest.raises(TerminalLost, match=under.split(":")[-1].strip()) as caught:
+        sshclient.log_in_with_the_printed_command(
+            "ssh -p 10722 pi@ps1.fpgas.online", ["hostname"], tmp_path / "known_hosts", timeout=5
+        )
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert child.sent == ["ship7ohT"]

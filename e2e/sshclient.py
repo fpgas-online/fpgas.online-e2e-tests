@@ -24,10 +24,11 @@ from e2e.sshbanner import password_from_banner
 from e2e.terminal import (
     DEFAULT_PROMPT,
     TerminalBusy,
+    TerminalLost,
     WebTerminal,
     at_a_prompt,
+    read_shell_line,
     strip_prompt_and_echo,
-    text_after_last_prompt,
 )
 
 _HOST_KEY_QUESTION = r"\(yes/no(?:/\[fingerprint\])?\)\?"
@@ -81,15 +82,21 @@ def banner_from(printed: str) -> str:
 
 
 def refuse_if_line_busy(login_text: str) -> None:
-    """Raise TerminalBusy if the login landed on a line someone else has typed on.
+    """Send nothing unless the shell's line is free: TerminalBusy for a visitor, TerminalLost for a fault.
 
-    The ssh login attaches to the same shared tmux session as the web
-    terminal, so `sendline` would append to a visitor's half-typed command
-    and press Enter on it. What tmux painted on attaching shows the line.
+    The ssh login may attach to a tmux session other visitors share, so
+    `sendline` would append to their half-typed command and press Enter on
+    it. What tmux painted on attaching shows the line. No visible prompt
+    line is left to the caller, which has already looked for a prompt.
     """
-    typed = text_after_last_prompt(login_text)
-    if typed:
-        raise TerminalBusy(WebTerminal.busy_reason(typed))
+    line = read_shell_line(login_text)
+    if line.state == "busy":
+        raise TerminalBusy(WebTerminal.busy_reason(line.text, login_text))
+    if line.state in ("broken", "unknown"):
+        raise TerminalLost(
+            f"nothing was sent: the shell's line is {line.state} ({line.text!r}); "
+            f"the login painted {ocr.normalise(login_text)[-300:]!r}"
+        )
 
 
 def _read_until(child, done, timeout: float, quiet: float = 1.0) -> str:

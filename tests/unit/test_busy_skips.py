@@ -182,3 +182,11 @@ def test_a_visitor_typing_does_not_hide_evidence_that_already_failed_in_the_fixt
     )
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*every board tried was working*"])
+
+
+@pytest.mark.parametrize("run", [_run_basics, _run_ssh])
+def test_a_broken_terminal_is_never_turned_into_a_skip(monkeypatch, run):
+    from e2e.terminal import TerminalLost
+
+    with pytest.raises(TerminalLost):
+        run(monkeypatch, TerminalLost("the shell's line is broken ('Stale file handle')"))

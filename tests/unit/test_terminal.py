@@ -8,8 +8,8 @@ from e2e.terminal import (
     WebTerminal,
     at_a_prompt,
     decode_wssh_frames,
+    read_shell_line,
     strip_prompt_and_echo,
-    text_after_last_prompt,
     without_cursor,
 )
 
@@ -413,37 +413,105 @@ def test_exit_status_is_refused_too_when_the_line_is_not_empty():
     assert page.keyboard.pressed == []
 
 
+PROMPT = "03:26:04 pi@pi7:~ $ "
+# The real status line (fpgas.online-setup-pi onpi/tmux/tmux.conf): [session number] windows, hostname, %I:%M%p.
+STATUS = "[3] 0:h- 1:bash*                    pi-sw2-p46 10:50PM"
+
+
 @pytest.mark.parametrize(
-    ("screen", "expected"),
+    ("screen", "state"),
     [
         # free: nothing after the prompt, or exactly the cursor block OCR reads as "[]"
-        ("03:26:04 pi@pi7:~ $ \n", ""),
-        ("03:26:04 pi@pi7:~ $ []\n", ""),
-        ("03:26:04 pi@pi7:~ $\n", ""),
-        ("03:26:04 pi@pi7:~ # \n", ""),
-        ("03:26:04 pi@pi7:~ $ []\n[default-10:bash*   pi7 02:28pm\n", ""),
+        (PROMPT + "\n", "free"),
+        (PROMPT + "[]\n", "free"),
+        ("03:26:04 pi@pi7:~ $\n", "free"),
+        ("03:26:04 pi@pi7:~ # \n", "free"),
+        ("03:24:27 pi@pi7:~ $ echo hi\nhi\n" + PROMPT + "[]\n", "free"),
         # a single stray character is a visitor's first keystroke, never a cursor
-        ("03:26:04 pi@pi7:~ $ |\n", "|"),
-        ("03:26:04 pi@pi7:~ $ _\n", "_"),
-        ("03:26:04 pi@pi7:~ $ [\n", "["),
-        ("03:26:04 pi@pi7:~ $ ]\n", "]"),
-        ("03:26:04 pi@pi7:~ $ l\n", "l"),
-        ("03:26:04 pi@pi7:~ $ [][]\n", "[][]"),
-        ("03:26:04 pi@pi7:~ $ ls []\n", "ls []"),
-        ("03:26:04 pi@pi7:~ $ echo $HOME\n", "echo $HOME"),
-        # the last prompt wins, earlier commands in the history do not count
-        ("03:24:27 pi@pi7:~ $ echo hi\nhi\n03:26:04 pi@pi7:~ $ []\n", ""),
-        ("03:24:27 pi@pi7:~ $ []\n03:26:04 pi@pi7:~ $ vi x\n", "vi x"),
-        ("\x1b[32mpi@pi7\x1b[m:~ $ \x1b[Kls\n", "ls"),
-        # a line under the last prompt is not free: a REPL, running output, a wrapped command
-        ("03:26:04 pi@pi7:~ $ []\n>>> import os\n", ">>> import os"),
-        ("03:26:04 pi@pi7:~/a/very/long/path $ []\nsudo apt install pipx\n", "sudo apt install pipx"),
-        ("03:26:04 pi@pi7:~ $ sleep 99\nstill going\n", "sleep 99 still going"),
+        (PROMPT + "|\n", "busy"),
+        (PROMPT + "_\n", "busy"),
+        (PROMPT + "[\n", "busy"),
+        (PROMPT + "]\n", "busy"),
+        (PROMPT + "l\n", "busy"),
+        (PROMPT + "[][]\n", "busy"),
+        (PROMPT + "ls []\n", "busy"),
+        (PROMPT + "echo $HOME\n", "busy"),
+        ("03:24:27 pi@pi7:~ $ []\n03:26:04 pi@pi7:~ $ vi x\n", "busy"),
+        ("\x1b[32mpi@pi7\x1b[m:~ $ \x1b[Kls\n", "busy"),
+        # a command typed on the line that is running: its output is under it
+        (PROMPT + "sleep 99\nstill going\n", "busy"),
+        (PROMPT + "sudo apt install pipx\nReading package lists...\n", "busy"),
+        # a broken board never reads as a visitor: text under the prompt that is a closed session,
+        # an error or a system message fails, whether or not the line above has text
+        (PROMPT + "[]\nConnection to pi7 closed.\n", "broken"),
+        (PROMPT + "ls\nbash: /usr/bin/ls: Stale file handle\n", "broken"),
+        (PROMPT + "[]\nbash: /usr/bin/ls: Stale file handle\n", "broken"),
+        (PROMPT + "[]\nBroadcast message from root@pi7 (Sun 2026-10-04 22:00):\nThe system is going down\n", "broken"),
+        (PROMPT + "[]\n[  123.456789] mmc0: error -110 whilst initialising SD card\n", "broken"),
+        (PROMPT + "[]\nls: reading directory '.': Input/output error\n", "broken"),
+        (PROMPT + "[]\ntouch: cannot touch 'x': Read-only file system\n", "broken"),
+        (PROMPT + "apt install x\nE: Failed to fetch http://x  Read-only file system\n", "broken"),
+        # anything else under an empty prompt is unrecognised: when in doubt, not a visitor
+        (PROMPT + "[]\n>>> import os\n", "unknown"),
+        ("03:26:04 pi@pi7:~/a/very/long/path $ []\nsudo apt install pipx\n", "unknown"),
         # no prompt line at all
-        ("no prompt here\n", None),
-        (">>> import os\n", None),
-        ("", None),
+        ("no prompt here\n", "none"),
+        (">>> import os\n", "none"),
+        ("", "none"),
     ],
 )
-def test_text_after_last_prompt(screen, expected):
-    assert text_after_last_prompt(screen) == expected
+def test_read_shell_line_state(screen, state):
+    assert read_shell_line(screen).state == state
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "[3] 0:h- 1:bash*                    pi-sw2-p46 10:50PM",  # the real one
+        "[12] 0:h 1:bash- 2:bash*     pi-sw2-p46 07:05AM",  # several windows, zero-padded hour
+        "[3] 0:h 1:bash*   pi7 22:50",  # 24-hour
+        "[default-10:bash*            pi2 02:28pm",  # the older capture
+        "3 0:h- 1:bash   pi-sw2-p46 10:50PM",  # OCR dropped the brackets and the star
+        "[3 0:h- 1:bash*   pi-sw2-p46 10:5OPM",  # OCR read a zero as a letter
+        "[3] 0:h- 1:bash*   pi-sw2-p46 10:50PM |",  # trailing OCR junk
+    ],
+)
+def test_the_last_row_is_recognised_as_a_status_line_by_shape(status):
+    assert read_shell_line(PROMPT + "[]\n" + status + "\n").state == "free"
+
+
+def test_a_status_line_is_only_ignored_on_the_last_row():
+    """A clock anywhere else is text: the same line above the last row is not a status line."""
+    screen = PROMPT + "[]\n" + STATUS + "\nsomething else\n"
+    assert read_shell_line(screen).state == "unknown"
+
+
+def test_a_last_row_that_cannot_be_recognised_as_a_status_line_is_not_free():
+    mangled = "[3] 0:h- 1:bash* pi-sw2-p46 1O:5OPN"
+    assert read_shell_line(PROMPT + "[]\n" + mangled + "\n").state == "unknown"
+
+
+def test_the_read_quotes_what_it_judged():
+    line = read_shell_line(PROMPT + "sudo apt install pipx\n" + STATUS + "\n")
+    assert line.state == "busy" and line.text == "sudo apt install pipx"
+
+
+def test_run_fails_and_types_nothing_for_a_closed_session_under_the_prompt():
+    """The stale-NFS breakage and a dropped session look like text under the prompt; they are not a visitor."""
+    page, term = _ready_terminal(PROMPT + "[]\nbash: /usr/bin/ls: Stale file handle\n" + STATUS + "\n")
+
+    with pytest.raises(TerminalLost, match="Stale file handle") as caught:
+        term.run("hostname", settle=0)
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert page.keyboard.pressed == []
+
+
+def test_the_busy_reason_quotes_the_screen_it_was_judged_from():
+    page, term = _ready_terminal(PROMPT + "sudo apt install pipx\n" + STATUS + "\n")
+
+    with pytest.raises(TerminalBusy) as caught:
+        term.run("hostname", settle=0)
+
+    assert "the screen reads" in str(caught.value) and "pi-sw2-p46" in str(caught.value)
+    assert page.keyboard.pressed == []
