@@ -19,7 +19,7 @@ from pathlib import Path
 from e2e.evidence import EvidenceLog
 from e2e.session import BoardSession
 from e2e.sshbanner import parse_instructions
-from e2e.sshclient import SshFailed, SshUnreachable, log_in_with_the_printed_command
+from e2e.sshclient import SshFailed, SshNoBannerPassword, SshUnreachable, log_in_with_the_printed_command
 
 # /proc/uptime is exactly two floats on one line: seconds up, seconds idle.
 # Anchored, because an unanchored number picks up the clock in the prompt
@@ -131,6 +131,14 @@ class SshPortUnreachable(AssertionError):
     """
 
 
+class SshBannerHasNoPassword(AssertionError):
+    """The printed ssh command reached the board's password prompt, but the banner shown before it holds no password.
+
+    Nothing else: not an unreachable port, a refused password, a closed
+    connection, a missing prompt, a wrong board, or a page that failed.
+    """
+
+
 def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: Path, timeout: float = 30.0) -> None:
     """The ssh command the page prints, run in a real ssh client, reaches the board."""
     board, page = session.board, session.page
@@ -146,6 +154,11 @@ def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: 
     except SshUnreachable as exc:
         evidence.ground_truth(
             f"`{command}` logs in with the banner's password", False, detail=str(exc), error=SshPortUnreachable
+        )
+        return
+    except SshNoBannerPassword as exc:
+        evidence.ground_truth(
+            f"`{command}` logs in with the banner's password", False, detail=str(exc), error=SshBannerHasNoPassword
         )
         return
     except (SshFailed, ValueError) as exc:  # reached the port but no login, or not an ssh command: other failures

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from e2e.journeys import SshPortUnreachable
+from e2e.journeys import SshBannerHasNoPassword
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,12 +42,13 @@ ROOT = Path(__file__).parents[1]
 KNOWN_FAILURES: dict[tuple[str, str], KnownFailure] = {
     ("welland", "tests/shared/test_direct_ssh.py::test_ssh_instructions_on_the_page_let_you_log_in"): KnownFailure(
         reason=(
-            "the ssh command printed on the board page cannot reach its port from outside the site "
-            "(connection refused, timed out or silent). Tracked in fpgas-online/fpgas.online-infra#191 "
-            "(https://github.com/fpgas-online/fpgas.online-infra/issues/191). "
-            "Remove this entry when that issue is fixed"
+            "the board's sshd shows no banner with the password, so the page's instruction "
+            "('password is in login banner') cannot be followed: the printed ssh command reaches the "
+            "password prompt and the visitor was never shown a password. Tracked in "
+            "fpgas-online/fpgas.online-infra#215 (https://github.com/fpgas-online/fpgas.online-infra/issues/215). "
+            "Remove this entry when the boards' root carries the ssh banner"
         ),
-        raises=SshPortUnreachable,
+        raises=SshBannerHasNoPassword,
     ),
 }
 

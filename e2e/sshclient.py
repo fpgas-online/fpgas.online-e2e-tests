@@ -57,6 +57,14 @@ class SshUnreachable(SshFailed):
     """
 
 
+class SshNoBannerPassword(SshFailed):
+    """The port answered and asked for a password, but the banner it showed holds no password.
+
+    Only that: the server was reached and reached its password prompt. Not a
+    refused password, not a closed connection, not a missing shell prompt.
+    """
+
+
 # ssh's own wording when the TCP connection to the port fails.
 _UNREACHABLE = re.compile(
     r"connect to host \S+ port \d+: "
@@ -185,7 +193,7 @@ def log_in_with_the_printed_command(
         banner = banner_from(transcript)
         password = password_from_banner(banner)
         if password is None:
-            raise SshFailed(f"the login banner does not contain a password; it read {banner!r}")
+            raise SshNoBannerPassword(f"the login banner does not contain a password; it read {banner!r}")
         child.sendline(password)
 
         text = _read_until(child, lambda t: at_a_prompt(t, prompt), timeout)
