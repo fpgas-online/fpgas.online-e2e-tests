@@ -13,7 +13,18 @@ from tests.busy import skip_for_busy_terminal
 
 @pytest.fixture
 def board_page(
-    request, browser, browser_context_args, browser_identity, page, site, seed, on_dead, evidence, output_dir
+    request,
+    browser,
+    browser_context_args,
+    browser_identity,
+    page,
+    site,
+    seed,
+    on_dead,
+    evidence,
+    output_dir,
+    boards_wanted,
+    disruption_guard,
 ):
     """Factory: board_page() -> BoardSession on a live, working board.
 
@@ -24,6 +35,7 @@ def board_page(
     every failure happens on ours.
     """
     opened: list[BoardSession] = []
+    disruptive_test = request.node.get_closest_marker("disruptive") is not None
 
     def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
@@ -38,10 +50,19 @@ def board_page(
             detail=f"listed: {[(b.hostname, b.fpga_board) for b in boards]}",
         )
 
-        candidates = choose(boards, seed)
+        if disruptive_test and not boards_wanted:
+            pytest.fail("a disruptive test never chooses its board: run it with --boards <hostname>", pytrace=False)
+        candidates = choose(boards, seed, wanted=boards_wanted)
         problems = []
         for board in candidates:
+            if disruptive_test:
+                # Before the board's page is even opened, and for a board that was named explicitly too.
+                refusal = disruption_guard.refusal(board)
+                if refusal:
+                    pytest.fail(f"refused: {refusal}", pytrace=False)
             session = open_board(browser, browser_context_args, site, board)
+            if disruptive_test:
+                session.refusal_check = lambda board=board: disruption_guard.refusal(board)
             opened.append(session)
             try:
                 ok, why = _is_working(session)

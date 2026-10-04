@@ -7,6 +7,7 @@ so there is exactly one notion of "open this board" in the suite.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from pathlib import Path
 
 from e2e.board import Board
@@ -24,6 +25,10 @@ class BoardSession:
     camera: Camera
     status: StatusLog
     context: object = None
+    # Asked immediately before each disruptive action: returns why the board
+    # must not be disrupted, or "" (see e2e.protection.DisruptionGuard). None
+    # means no identity check was attached, which refuses the action.
+    refusal_check: Callable[[], str] | None = None
 
     def snapshot(self, path: Path) -> None:
         """A full-page screenshot of the board page as it is now, for the record."""

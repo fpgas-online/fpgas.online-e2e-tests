@@ -1,0 +1,11 @@
+# Devices a run must never disrupt (upload, power cycle), even when --boards names them.
+#
+# A device is identified by the Pi's serial number, which is what the site's
+# registry (/fleet/) lists next to the hostname it currently answers to. Never
+# by a port or a hostname: those change when a board is re-patched or renamed.
+# `label` is the name on the device's generated label, for the failure message.
+
+[[protected]]
+serial = "285df3f84af242d0"
+label = "acorn-holly"
+reason = "Acorn reference board: kept in a known state for comparisons"

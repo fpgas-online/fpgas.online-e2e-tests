@@ -10,6 +10,7 @@ import pytest
 from e2e.audit import NEEDS_DISRUPTIVE
 from e2e.evidence import EvidenceLog
 from e2e.picker import OnDead
+from e2e.protection import DisruptionGuard, parse_boards_option, require_named_boards
 from e2e.site import Site
 
 
@@ -32,7 +33,9 @@ def pytest_addoption(parser):
     parser.addoption(
         "--boards",
         default="",
-        help="audit only these boards, by hostname (comma separated); for development runs",
+        help="run only on these boards, by hostname (comma separated): the audit audits only them, and the "
+        "shared tests choose only among them (and fail if the site lists none of them); no test opens any "
+        "other board. Required with --disruptive, which never chooses its board",
     )
 
 
@@ -45,6 +48,13 @@ def pytest_collection_modifyitems(config, items):
     (e2e.audit.NEEDS_DISRUPTIVE), and -ra (pyproject addopts) lists it in the
     summary, so a skipped test is never mistaken for a passed one.
     """
+    try:
+        require_named_boards(
+            bool(config.getoption("--disruptive")),
+            parse_boards_option(config.getoption("--boards")),
+        )
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
     if config.getoption("--disruptive"):
         return
     skip = pytest.mark.skip(reason=NEEDS_DISRUPTIVE)
@@ -79,7 +89,16 @@ def disruptive(pytestconfig) -> bool:
 
 @pytest.fixture(scope="session")
 def boards_wanted(pytestconfig) -> set[str]:
-    return {name.strip() for name in pytestconfig.getoption("--boards").split(",") if name.strip()}
+    try:
+        return parse_boards_option(pytestconfig.getoption("--boards"))
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from exc
+
+
+@pytest.fixture(scope="session")
+def disruption_guard(site) -> DisruptionGuard:
+    """Says whether a board may be disrupted: not a protected device, whatever hostname it has now."""
+    return DisruptionGuard(site)
 
 
 @pytest.fixture(scope="session")

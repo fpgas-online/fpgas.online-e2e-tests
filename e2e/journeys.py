@@ -108,17 +108,17 @@ def poe_status_is_reported(session: BoardSession, evidence: EvidenceLog, timeout
     board, status, page = session.board, session.status, session.page
     baseline = status.text()
     page.click(f"#status{board.port}")
-    seen, detail = status.wait_for_new("power", baseline, timeout=timeout)
-    evidence.claim("the status box reports the PoE state after 'Check PoE'", seen, detail=detail)
     # Only what the click added counts: an old line from before the click is
-    # not an answer to it.
-    state = status.poe_state(since=baseline)
+    # not an answer to it, and neither is "checking status: <port>", which
+    # only says the question was asked.
+    state, detail = status.wait_for_poe_state(baseline, timeout=timeout)
+    evidence.claim("the status box reports the PoE state after 'Check PoE'", bool(state), detail=detail)
     if state == "off":
         live, picture = session.camera.check_live(timeout=15)
         evidence.claim(
             "the status box does not say 'off' under a live picture",
             not live,
-            detail=f"the box says power off; {picture}",
+            detail=f"the box says PoE off; {picture}",
         )
     return state
 
@@ -165,6 +165,23 @@ def _uptime_seconds(terminal, evidence: EvidenceLog, when: str) -> float:
     return seconds
 
 
+class DisruptionRefused(AssertionError):
+    """The board must not be disrupted (a protected device, or an identity that could not be established)."""
+
+
+def require_may_disrupt(session: BoardSession) -> None:
+    """Ask, just now, whether this board may be disrupted; raise DisruptionRefused, doing nothing, if not.
+
+    Called immediately before each disruptive action, so a device that changed
+    hostname since the run began is judged by what it is now.
+    """
+    if session.refusal_check is None:
+        raise DisruptionRefused("refused: no identity check was attached to this board, so nothing disruptive is done")
+    why = session.refusal_check()
+    if why:
+        raise DisruptionRefused(f"refused: {why}")
+
+
 def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -> None:
     """Does "turn it off and on again" actually turn the board off and on again?
 
@@ -194,11 +211,12 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
     # box accumulates and the click itself makes the page re-ask for the PoE
     # state, so without this baseline the status assertion matches text the
     # click produced whether or not the port was ever switched.
+    require_may_disrupt(session)
     baseline = status.text()
     clicked_at = time.monotonic()
     page.click(f"#reset{board.port}")
 
-    seen, detail = status.wait_for_new("set power", baseline, timeout=30)
+    seen, detail = status.wait_for_reset_report(baseline, timeout=30)
     evidence.claim("the status box reports the PoE port being switched", seen, detail=detail)
 
     stopped, detail = camera.check_stopped(timeout=120)
@@ -319,8 +337,9 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
 
     live, detail = camera.check_live_with_recovery(timeout=60)
     evidence.ground_truth("the camera is live before the upload", live, detail=detail)
-    before = camera.shot()
+    before, before_selector = camera.shot_with_selector()
 
+    require_may_disrupt(session)
     page.set_input_files("#upform input[type=file]", str(bitstream))
     page.click("#upform input[type=submit]")
     try:
@@ -371,7 +390,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
 
     # The feed runs about a minute behind, so keep watching rather than
     # comparing one shot taken the moment programming finished.
-    changed, detail = camera.wait_for_change(before, threshold=CHANGED, timeout=120)
+    changed, detail = camera.wait_for_change(before, before_selector, threshold=CHANGED, timeout=120)
     evidence.ground_truth("the board looks different from before the upload", changed, detail=detail)
 
     counting, detail = camera.keeps_changing(threshold=STILL_RUNNING)

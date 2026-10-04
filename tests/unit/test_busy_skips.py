@@ -159,6 +159,10 @@ def seed(): return 1
 def on_dead(): return OnDead.FAIL
 @pytest.fixture
 def output_dir(tmp_path): return tmp_path
+@pytest.fixture
+def boards_wanted(): return set()
+@pytest.fixture
+def disruption_guard(): return None
 '''
 
 

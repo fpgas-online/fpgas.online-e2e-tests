@@ -52,7 +52,7 @@ def test_without_the_option_disruptive_tests_are_skipped_with_the_reason_and_nev
 
 
 def test_with_the_option_the_disruptive_tests_run(nested):
-    result = nested.runpytest("--disruptive", "-p", "no:playwright")
+    result = nested.runpytest("--disruptive", "--boards", "pi-sw2-p46", "-p", "no:playwright")
     result.assert_outcomes(passed=3, skipped=0)
 
 
@@ -76,3 +76,16 @@ def test_the_real_shared_tests_carry_the_marker(pytestconfig):
     assert marked(power.test_reset_button_power_cycles_the_board)
     assert not marked(basics.test_a_board_page_gives_you_a_live_camera_and_a_working_terminal)
     assert not marked(ssh.test_ssh_instructions_on_the_page_let_you_log_in)
+
+
+def test_disruptive_without_boards_fails_before_any_test_runs_and_says_so(nested):
+    """Never a skip and never a random board: the run is refused with the reason."""
+    result = nested.runpytest("--disruptive", "-p", "no:playwright")
+    assert result.ret != 0
+    assert "--disruptive needs --boards" in result.stderr.str() + result.stdout.str()
+    result.assert_outcomes()  # nothing passed, failed or was skipped: nothing ran
+
+
+def test_boards_without_disruptive_changes_nothing_about_the_marker(nested):
+    result = nested.runpytest("--boards", "pi-sw2-p46", "-p", "no:playwright")
+    result.assert_outcomes(passed=1, skipped=2)

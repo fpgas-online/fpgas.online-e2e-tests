@@ -1,7 +1,8 @@
+import pytest
 from PIL import Image, ImageDraw
 
 from e2e import camera
-from e2e.camera import clock_advanced
+from e2e.camera import CameraNotShown, clock_advanced
 
 
 def _solid(colour, size=(320, 200)):
@@ -101,6 +102,9 @@ class _FakeCamera:
         elif self.then == "ticking" and self.last is not None:
             self.last += 1
         return _frame(self.last)
+
+    def shot_with_selector(self):
+        return self.shot(), "#video-player1 video"
 
     def check_stopped(self, *a, **k):
         return camera.Camera.check_stopped(self, *a, **k)
@@ -202,3 +206,100 @@ def test_check_stopped_does_not_fire_when_readable_and_unreadable_readings_alter
     cam = _FakeCamera([7] * 20, then="stuck")
     stopped, detail = cam.check_stopped(timeout=0.5, gap=0.0)
     assert not stopped, detail
+
+
+# --- the displayed player can change while a check is comparing shots ---
+
+WHEP = '.whep-live[data-hls-id="video-player1"] video'
+HLS = "#video-player1 video"
+
+
+class _SwitchingCamera(camera.Camera):
+    """A Camera whose shots, and the player each came from, follow a script; nothing touches a page."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.last = script[-1]
+
+    def shot_with_selector(self):
+        if self.script:
+            self.last = self.script.pop(0)
+        item = self.last
+        if isinstance(item, Exception):
+            raise item
+        image, selector = item
+        return image, selector
+
+    def player_state(self):
+        return {}
+
+
+def _picture(colour, selector):
+    return _solid(colour), selector
+
+
+def test_wait_for_change_fails_loudly_when_the_player_switched_after_the_baseline(monkeypatch):
+    """The baseline predates the action, so it cannot be retaken, and white-on-WHEP vs black-on-HLS is no change."""
+    monkeypatch.setattr(camera.time, "sleep", lambda _s: None)
+    cam = _SwitchingCamera([_picture("white", HLS)])
+    with pytest.raises(camera.PlayerSwitched, match="player switched mid-check"):
+        cam.wait_for_change(_solid("black"), WHEP, threshold=0.01, timeout=5, gap=0.0)
+
+
+def test_wait_for_change_still_sees_a_real_change_on_the_same_player(monkeypatch):
+    monkeypatch.setattr(camera.time, "sleep", lambda _s: None)
+    cam = _SwitchingCamera([_picture("white", WHEP)])
+    changed, _ = cam.wait_for_change(_solid("black"), WHEP, threshold=0.01, timeout=5, gap=0.0)
+    assert changed
+
+
+def test_keeps_changing_does_not_count_a_player_switch_as_a_moving_picture(monkeypatch):
+    """One switch: the baseline is retaken from the new player; a still picture on it is still still."""
+    monkeypatch.setattr(camera.time, "sleep", lambda _s: None)
+    cam = _SwitchingCamera([_picture("black", WHEP)] + [_picture("white", HLS)] * 6)
+    moving, detail = cam.keeps_changing(threshold=0.01, gap=0.0, pairs=5)
+    assert not moving
+    assert "0.0000%" in detail
+
+
+def test_keeps_changing_fails_when_the_player_keeps_switching(monkeypatch):
+    monkeypatch.setattr(camera.time, "sleep", lambda _s: None)
+    cam = _SwitchingCamera([_picture("black", WHEP), _picture("white", HLS), _picture("black", WHEP)])
+    with pytest.raises(camera.PlayerSwitched):
+        cam.keeps_changing(threshold=0.01, gap=0.0, pairs=5)
+
+
+def test_is_live_retakes_its_shots_once_after_a_switch(monkeypatch):
+    monkeypatch.setattr(camera.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: None)
+    shots = [(_frame(n), WHEP if n else HLS) for n in range(6)]
+    live, _ = _SwitchingCamera(shots).is_live(gap=0.0)
+    assert live
+
+
+def test_is_live_fails_when_the_player_switches_twice(monkeypatch):
+    monkeypatch.setattr(camera.time, "sleep", lambda _s: None)
+    shots = [(_frame(n), WHEP if n % 2 else HLS) for n in range(6)]
+    with pytest.raises(camera.PlayerSwitched):
+        _SwitchingCamera(shots).is_live(gap=0.0)
+
+
+def test_a_player_that_is_not_displayed_is_not_a_stopped_camera():
+    """check_not_live must not read 'nothing displayed' as 'the board stopped sending video'."""
+    cam = _SwitchingCamera([CameraNotShown("no camera picture is displayed; found ...")])
+    with pytest.raises(CameraNotShown):
+        cam.check_not_live(timeout=1, gap=0.0)
+
+
+def test_a_player_that_is_not_displayed_is_not_a_live_camera_either():
+    cam = _SwitchingCamera([CameraNotShown("no camera picture is displayed; found ...")])
+    live, detail = cam.check_live(timeout=0.05, gap=0.0)
+    assert not live and "no camera picture is displayed" in detail
+
+
+def test_check_stopped_does_not_join_shots_of_two_players_into_one_stuck_run(monkeypatch):
+    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: "15:59:07")
+    still = _frame(1)
+    cam = _SwitchingCamera([(still, WHEP), (still, HLS)] * 5000)
+    stopped, _ = cam.check_stopped(timeout=0.3, gap=0.0, consecutive=3)
+    assert not stopped

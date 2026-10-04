@@ -39,6 +39,7 @@ def test_every_board_at_the_site(
     output_dir,
     evidence,
     disruptive,
+    disruption_guard,
 ):
     page.goto(site.index_url, wait_until="domcontentloaded")
     boards = parse_boards(page.content())
@@ -63,7 +64,9 @@ def test_every_board_at_the_site(
             print(f"[audit] {board.hostname}: {row.check('page').detail}", flush=True)
             continue
         try:
-            row = audit_board(session, known_hosts, disruptive=disruptive)
+            row = audit_board(
+                session, known_hosts, disruptive=disruptive, refusal=lambda board=board: disruption_guard.refusal(board)
+            )
         finally:
             try:
                 session.snapshot(output_dir / f"audit-{site.name}" / f"{board.hostname}.png")

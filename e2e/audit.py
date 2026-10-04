@@ -129,7 +129,7 @@ DISRUPTIVE = ("upload", "power cycle")
 NEEDS_DISRUPTIVE = "needs --disruptive"
 
 
-def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
+def audit_board(session, known_hosts, disruptive: bool = False, refusal=None) -> BoardAudit:
     """Every journey, in the order a person would try them, on one open board.
 
     The disruptive ones come last -- the upload reprograms the FPGA and Reset
@@ -137,12 +137,17 @@ def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
     a user finds it. These are public boards other people may be using, so
     they run only when `disruptive` is true (the --disruptive option);
     otherwise they are marked skipped, "needs --disruptive", and nothing on
-    the board is changed. The other journeys still type into the shared web
+    the board is changed. `refusal` is a function returning why this board
+    must not be disrupted, or "" (e2e.protection): it is asked again before
+    each disruptive cell, and by the journey itself just before its action,
+    and a refused cell is a failure that says so, not a skip; nothing is
+    changed. The other journeys still type into the shared web
     terminal and open the page's ssh session, which change nothing lasting.
     """
     from e2e import journeys  # noqa: PLC0415 - journeys imports the session types this module renders
 
     row = BoardAudit(session.board)
+    session.refusal_check = refusal
     steps = [
         ("page", lambda log: journeys.page_names_the_board(session, log), None, False),
         ("camera", lambda log: journeys.camera_is_live(session, log), camera_note, True),
@@ -156,6 +161,11 @@ def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
         if name in DISRUPTIVE and not disruptive:
             row.checks.append(Check(name=name, passed=False, detail=NEEDS_DISRUPTIVE, skipped=True))
             continue
+        if name in DISRUPTIVE:
+            why = refusal() if refusal is not None else "no identity check was attached to this run"
+            if why:
+                row.checks.append(Check(name=name, passed=False, detail=f"refused: {why}"))
+                continue
         if name == "upload" and journeys.loadable_for(session.board) is None:
             row.checks.append(
                 Check(name=name, passed=False, detail=journeys.no_bitstream_reason(session.board), skipped=True)

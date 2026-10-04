@@ -29,10 +29,22 @@ class NoSuchBoard(RuntimeError):
     pass
 
 
-def choose(boards: list[Board], seed: int) -> list[Board]:
-    """Every board the site lists, in a seeded random order."""
+def choose(boards: list[Board], seed: int, wanted: set[str] | frozenset[str] = frozenset()) -> list[Board]:
+    """Every board the site lists, in a seeded random order.
+
+    With `wanted` (--boards) only the listed boards named there are candidates;
+    if none of the named boards is listed, that is an error naming them, and
+    never a quiet choice of some other board.
+    """
     if not boards:
         raise NoSuchBoard("the site lists no boards at all")
     candidates = list(boards)
+    if wanted:
+        candidates = [b for b in candidates if b.hostname in wanted]
+        if not candidates:
+            raise NoSuchBoard(
+                f"--boards names {sorted(wanted)}, and the site lists none of them "
+                f"(it lists {sorted(b.hostname for b in boards)})"
+            )
     random.Random(seed).shuffle(candidates)
     return candidates

@@ -27,7 +27,7 @@ from typing import NamedTuple
 
 from PIL import Image
 
-from e2e import ocr
+from e2e import cursor, ocr
 
 # A shell prompt as it really appears: "06:25:33 pi@pi2:~/Demos/counter_test $ ".
 # Deliberately NOT anchored to the end of the buffer. The board pages attach to
@@ -110,6 +110,8 @@ _PROMPT_LINE = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#](?:[ \t]+(?P<typed>\S.*
 # "|", "_", "[" or "l" is just as likely a visitor's first keystroke, and
 # a command typed over theirs is worse than a skipped test.
 CURSOR_TOKEN = "[]"
+# How many times to look for a cursor that blinks before deciding there is none.
+CURSOR_LOOKS = 4
 
 # tmux's status line is the last row of the screen. What it looks like comes
 # from fpgas.online-setup-pi (onpi/tmux/tmux.conf): "[<session number>] ", a
@@ -122,10 +124,18 @@ CURSOR_TOKEN = "[]"
 # l I | for 1, S for 5, B for 8, Z for 2), all tolerated here.
 _DIGIT = r"[\dOoIl|SsBZz]"
 _CLOCK = rf"{_DIGIT}{{1,2}}\s*[:.;]\s*{_DIGIT}{{2}}\s*(?:[APap][MmNn])?[\s|\]_]*"
-_WINDOW = r"[\dOoIl|]\s*:\s*[\w.-]+[*#!~-]?"
-_STATUS_ROW = re.compile(
-    rf"^[\[(|]?[\w-]{{1,16}}?[\])|]?\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$"
+# The session is a NUMBER (tmux's default session name; the older captures
+# are "default-<number>"), so "[exited]" or a word is not one. A window name
+# has a letter in it ("h", "bash"): "0:30" is a time, not a window.
+# Without a bracket or the "default-" prefix it needs a real digit, because a
+# word made only of lookalike letters ("Boss", "Isis") is not a number.
+_SESSION = (
+    rf"(?:[\[(|]{_DIGIT}{{1,4}}[\])|]?"
+    rf"|[\[(|]?default-{_DIGIT}{{1,4}}[\])|]?"
+    rf"|(?=[\dOoIl|SsBZz]{{0,3}}\d){_DIGIT}{{1,4}}[\])|]?)"
 )
+_WINDOW = r"[\dOoIl|]\s*:\s*(?=[\w.-]*[A-Za-z])[\w.-]+[*#!~MZ-]?"
+_STATUS_ROW = re.compile(rf"^{_SESSION}\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$")
 
 # Text under the prompt that is a closed session, an error or a system message.
 # A visitor's running command can print any of it, so on a line with typed text
@@ -285,6 +295,12 @@ class TerminalOutput:
 class WebTerminal:
     """The wssh iframe on a board page."""
 
+    # Whether the last screen read found the cursor in the picture (and so
+    # blanked it before OCR); None until a screen has been read.
+    _cursor_seen: bool | None = None
+    # Whether the last screen read had ink in the cell just left of a cursor it found.
+    _glyph_against_cursor: bool = False
+
     def __init__(self, page, frame_selector: str = "#wssh_if", prompt: str = DEFAULT_PROMPT):
         self.page = page
         self.frame_selector = frame_selector
@@ -334,7 +350,7 @@ class WebTerminal:
                 next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
         line = read_shell_line(self._last_screen)
-        if line.state == "busy":
+        if line.state == "busy" and self._cursor_seen is not False:
             raise TerminalBusy(self.busy_reason(line.text, self._last_screen))
         raise TimeoutError(
             f"no shell prompt within {timeout}s; {describe_busy_shell(self._last_screen)}"
@@ -469,10 +485,34 @@ class WebTerminal:
         the screen. (A visitor who starts typing in the few milliseconds
         between this look and the keystrokes cannot be detected.)
         """
-        screen = self._ocr_visible()
-        line = read_shell_line(screen)
+        # The cursor is blanked out of the picture before OCR (see e2e.cursor),
+        # so text after the prompt is glyphs. xterm blinks it, though, and a
+        # shot taken in the off phase shows none: look again a few times for
+        # one. With no cursor found in any look, what follows the prompt is
+        # glyph ink (a painted-out cursor leaves none): a visitor typing right
+        # up against the cursor merges with it, so no separate block is found.
+        # That is a visitor only if every look read the same text on the last
+        # prompt row with nothing under it that reads as a fault; text that
+        # changes from look to look is not trusted either way.
+        looks = []
+        for look in range(CURSOR_LOOKS):
+            screen = self._ocr_visible()
+            line = read_shell_line(screen)
+            looks.append((line.state, line.text))
+            if self._cursor_seen is not False or look == CURSOR_LOOKS - 1:
+                break
+            self.page.wait_for_timeout(400)
+        if line.state == "busy" and self._cursor_seen is False and len(set(looks)) != 1:
+            raise TerminalLost(
+                f"nothing was typed: {line.text!r} follows the prompt, no cursor was found in {CURSOR_LOOKS} "
+                f"looks and the reading changed between them ({looks!r}), so it cannot be told from a misread; "
+                f"the screen reads {ocr.normalise(screen)[-300:]!r}"
+            )
         if line.state == "busy":
             raise TerminalBusy(self.busy_reason(line.text, screen))
+        if line.state == "free" and self._glyph_against_cursor:
+            # OCR dropped a lone typed character (an "l", a "1") against the cursor; the picture has it.
+            raise TerminalBusy(self.busy_reason("a character OCR could not read, against the cursor", screen))
         if line.state != "free":
             raise TerminalLost(
                 f"nothing was typed: the shell's line is {line.state} ({line.text!r}); "
@@ -572,4 +612,8 @@ class WebTerminal:
             .screenshot(timeout=timeout * 1000),
             wait=retry_wait,
         )
-        return ocr.read_text(Image.open(io.BytesIO(shot)), psm=6)
+        original = Image.open(io.BytesIO(shot))
+        picture, cursors = cursor.blank_cursors(original)
+        self._cursor_seen = bool(cursors)
+        self._glyph_against_cursor = any(cursor.glyph_before(original, box) for box in cursors)
+        return ocr.read_text(picture, psm=6)

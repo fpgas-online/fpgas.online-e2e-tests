@@ -18,6 +18,9 @@ on:
         default: fail
         type: choice
         options: [fail, retry]
+      boards:
+        description: "Run only on these boards (hostnames, comma separated; pick one site, not both). Required with either disruptive box"
+        default: ""
       disruptive:
         description: "Also upload a bitstream to and power-cycle the chosen board (a public board; the scheduled run never does)"
         default: false
@@ -91,12 +94,20 @@ jobs:
           uv run playwright install --with-deps chrome ffmpeg
           sudo apt-get install -y xvfb
       - name: Run the suite against ${{ matrix.site }}
+        # Inputs reach the shell as environment variables and are quoted there,
+        # never interpolated into the script text.
+        env:
+          SITE: ${{ matrix.site }}
+          ON_DEAD: ${{ inputs.on_dead || 'fail' }}
+          SEED: ${{ inputs.seed }}
+          DISRUPTIVE: ${{ inputs.disruptive }}
+          BOARDS: ${{ inputs.boards }}
         run: |
-          xvfb-run -a uv run pytest tests/shared -v -s \
-            --site ${{ matrix.site }} \
-            --on-dead ${{ inputs.on_dead || 'fail' }} \
-            ${{ inputs.seed && format('--seed {0}', inputs.seed) || '' }} \
-            ${{ inputs.disruptive && '--disruptive' || '' }} \
+          args=(--site "$SITE" --on-dead "$ON_DEAD")
+          if [ -n "$SEED" ]; then args+=(--seed "$SEED"); fi
+          if [ "$DISRUPTIVE" = "true" ]; then args+=(--disruptive); fi
+          if [ -n "$BOARDS" ]; then args+=(--boards "$BOARDS"); fi
+          xvfb-run -a uv run pytest tests/shared -v -s "${args[@]}" \
             --screenshot on --video retain-on-failure --tracing retain-on-failure \
             --output test-results
       - name: Upload artefacts
@@ -134,9 +145,15 @@ jobs:
           uv run playwright install --with-deps chrome ffmpeg
           sudo apt-get install -y xvfb
       - name: Audit ${{ matrix.site }}
+        env:
+          SITE: ${{ matrix.site }}
+          DISRUPTIVE: ${{ inputs.audit_disruptive }}
+          BOARDS: ${{ inputs.boards }}
         run: |
-          xvfb-run -a uv run pytest tests/audit -v -s \
-            --site ${{ matrix.site }} ${{ inputs.audit_disruptive && '--disruptive' || '' }} \
+          args=(--site "$SITE")
+          if [ "$DISRUPTIVE" = "true" ]; then args+=(--disruptive); fi
+          if [ -n "$BOARDS" ]; then args+=(--boards "$BOARDS"); fi
+          xvfb-run -a uv run pytest tests/audit -v -s "${args[@]}" \
             --screenshot on --video retain-on-failure --tracing retain-on-failure \
             --output test-results
       - name: Upload the report and artefacts

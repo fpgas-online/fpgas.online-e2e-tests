@@ -92,6 +92,14 @@ costs nothing, so it stays. What it does, in plain terms:
   hide a board whose picture is dead.
 - **A skip never hides a failure**: if the test had already recorded evidence
   that did not hold, it fails instead of skipping.
+- The cursor is never read by OCR. It is found in the screenshot (xterm's
+  filled block, or the hollow outline when the terminal is unfocused) and
+  painted out first; a cursor that blinks is looked for again. Ink in the cell
+  just left of it is a typed character even if OCR dropped it, so that line is
+  busy. If typed text touches the cursor so that no separate block is found,
+  text that reads the same in every look, on the last prompt row with nothing
+  under it that reads as a fault, is a visitor (a skip quoting the screen);
+  text that changes between looks is a failure.
 - The tmux status line is ignored. It is the last row and must have the whole
   shape (session number, at least one `<digit>:<name>` window, host, clock);
   a clock at the end of a line is not enough, and a row that reads as a fault
@@ -148,9 +156,33 @@ minutes) run only with `--disruptive`; without it those two cells read
 default now. The audit is not on the six-hourly schedule: run it from the
 Actions page with the "audit" box ticked (and "audit_disruptive" as well to
 include the upload and power cycle), or by hand. `--boards
-HOSTNAME,HOSTNAME` (hostnames as the index lists them) narrows it during
-development. A board whose FPGA type has no bitstream in this repo (every Acorn)
+HOSTNAME,HOSTNAME` (hostnames as the index lists them) narrows it; see "Which
+boards a run may touch". A board whose FPGA type has no bitstream in this repo (every Acorn)
 shows "skipped" in the upload column.
+
+## Which boards a run may touch
+
+- `--boards HOSTNAME[,HOSTNAME...]` (hostnames as the index lists them)
+  restricts the whole run to those boards. The audit audits only them; the
+  shared tests choose only among the named boards that the site lists, and
+  fail, naming them, if it lists none. With `--boards` no test opens any other
+  board's page.
+- `--disruptive` (the bitstream upload and the power cycle) never chooses a
+  board: it needs `--boards`, and without it the run is refused before any
+  test starts. Nothing disruptive runs on a board you did not name.
+- Some devices must never be disrupted, even when named. They are listed in
+  `e2e/protected_boards.toml` by the Pi's serial number, with the label name
+  and the reason, never by port or hostname. At run time the serial is looked
+  up against the site's public registry (`/fleet/`), so a protected device is
+  recognised under whatever hostname it has that day. A disruptive action on a
+  protected device is refused with a failure naming its label and reason; in
+  the audit its upload and power cycle cells fail with the same words.
+- The registry is read afresh immediately before each disruptive action (one
+  GET), not once per run, so a device that changed hostname since the run began
+  is judged by what it is now. If it cannot be read, or a named board is not
+  in it, its identity is unknown, and the disruptive action fails rather than
+  going ahead.
+- Tests that only do what a visitor does are unaffected by the protected list.
 
 ## How it decides something works
 
