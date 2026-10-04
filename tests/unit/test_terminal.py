@@ -474,6 +474,12 @@ def test_read_shell_line_state(screen, state):
         "3 0:h- 1:bash   pi-sw2-p46 10:50PM",  # OCR dropped the brackets and the star
         "[3 0:h- 1:bash*   pi-sw2-p46 10:5OPM",  # OCR read a zero as a letter
         "[3] 0:h- 1:bash*   pi-sw2-p46 10:50PM |",  # trailing OCR junk
+        "[3] 0:h- 1:bash*   pi-sw2-p46 10:S0PM",  # S for 5
+        "[3] 0:h- 1:bash*   pi-sw2-p46 l0:50PM",  # l for 1
+        "[3] 0:h- 1:bash*   pi-sw2-p46 IO:5OPM",  # I for 1, O for 0
+        "[3] 0:h- 1:bash*   pi-sw2-p46 O8:BZPM",  # O for 0, B for 8, Z for 2
+        "[3] 0:h- 1:bash*   pi-sw2-p46 |0:50PM",  # | for 1
+        "[3] 0:h   pi-sw2-p46 10:50PM",  # one window only
     ],
 )
 def test_the_last_row_is_recognised_as_a_status_line_by_shape(status):
@@ -486,9 +492,61 @@ def test_a_status_line_is_only_ignored_on_the_last_row():
     assert read_shell_line(screen).state == "unknown"
 
 
-def test_a_last_row_that_cannot_be_recognised_as_a_status_line_is_not_free():
-    mangled = "[3] 0:h- 1:bash* pi-sw2-p46 1O:5OPN"
-    assert read_shell_line(PROMPT + "[]\n" + mangled + "\n").state == "unknown"
+@pytest.mark.parametrize(
+    "row",
+    [
+        "[3] 0:h- 1:bash* pi-sw2-p46 garbled",  # tmux shape, no clock
+        "[3] pi-sw2-p46 10:50PM",  # no window entry
+        "[3] 0:h- 1:bash*",  # no host or clock
+        "pi-sw2-p46 10:50PM",  # host and clock only
+    ],
+)
+def test_a_last_row_that_is_not_the_whole_tmux_shape_is_not_a_status_row(row):
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state == "unknown"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        # a clock at the end is not what makes a status row: none of these may be dropped as one
+        "Connection to pi closed at 10:50",
+        "Connection to pi7 closed by remote host at 10:50PM",
+        "Broadcast message from root@pi7 (Sun 2026-10-04 22:00): the system is going down at 22:50",
+        "[  123.456789] eth0: link is down 10:50",
+        "Remote side unexpectedly dropped the session at 10:50",
+        "bash: /usr/bin/ls: Stale file handle 10:50",
+    ],
+)
+def test_a_fault_ending_in_a_time_is_never_swallowed_as_the_status_row(row):
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state in ("broken", "unknown")
+
+
+def test_a_fault_matching_a_broken_pattern_is_checked_before_the_status_shape():
+    """Even a row with the whole tmux shape is not discarded if a fault pattern matches it.
+
+    Here a window happens to be named "error": the broken check comes first, so the row
+    stays in the screen and the result is a failure, not a silent drop.
+    """
+    row = "[3] 0:h- 1:error* pi7 10:50PM"
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state == "broken"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        "Connection to pi closed at 10:50",
+        "Broadcast message from root@pi7 (Sun 2026-10-04 22:00): the system is going down at 22:50",
+        "[  123.456789] eth0: link is down 10:50",
+    ],
+)
+def test_run_types_nothing_and_fails_for_a_fault_ending_in_a_time(row):
+    page, term = _ready_terminal(PROMPT + "[]\n" + row + "\n")
+
+    with pytest.raises(TerminalLost) as caught:
+        term.run("hostname", settle=0)
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert page.keyboard.pressed == []
 
 
 def test_the_read_quotes_what_it_judged():

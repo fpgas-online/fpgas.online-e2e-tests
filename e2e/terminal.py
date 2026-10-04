@@ -112,13 +112,20 @@ _PROMPT_LINE = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#](?:[ \t]+(?P<typed>\S.*
 CURSOR_TOKEN = "[]"
 
 # tmux's status line is the last row of the screen. What it looks like comes
-# from fpgas.online-setup-pi (onpi/tmux/tmux.conf): "[<session number>] " and a
+# from fpgas.online-setup-pi (onpi/tmux/tmux.conf): "[<session number>] ", a
 # window list with one window per login ("0:h- 1:bash*"), then status-right
-# `#(hostname -s) #(date +"%I:%M%p")`: "pi-sw2-p46 10:50PM". OCR drops or
-# mangles brackets and flags, so only the shape the row must end in is
-# required: a clock, 12- or 24-hour, then at most a little OCR junk. The
-# position (the last non-empty row) does the rest of the identifying.
-_STATUS_CLOCK = re.compile(r"\d{1,2}\s*[:.;]\s*[\dOoIl]{2}\s*(?:[APap][MmNn])?[\s|\]_]*$")
+# `#(hostname -s) #(date +"%I:%M%p")`: "pi-sw2-p46 10:50PM". A row is a status
+# row only if it has that whole shape, session, at least one `<digit>:<name>`
+# window, host, clock at the end; a bare clock at the end of a line proves
+# nothing (a closed-connection or kernel message can end in one). OCR drops
+# or mangles the brackets and flags, and reads digits as lookalikes (O for 0,
+# l I | for 1, S for 5, B for 8, Z for 2), all tolerated here.
+_DIGIT = r"[\dOoIl|SsBZz]"
+_CLOCK = rf"{_DIGIT}{{1,2}}\s*[:.;]\s*{_DIGIT}{{2}}\s*(?:[APap][MmNn])?[\s|\]_]*"
+_WINDOW = r"[\dOoIl|]\s*:\s*[\w.-]+[*#!~-]?"
+_STATUS_ROW = re.compile(
+    rf"^[\[(|]?[\w-]{{1,16}}?[\])|]?\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$"
+)
 
 # Text under the prompt that is a closed session, an error or a system message.
 # A visitor's running command can print any of it, so on a line with typed text
@@ -151,7 +158,9 @@ class ShellLine(NamedTuple):
 
 
 def _is_status_row(line: str) -> bool:
-    return _PROMPT_LINE.search(line) is None and _STATUS_CLOCK.search(line) is not None
+    """The whole tmux shape, and never a line that reads as a fault: a broken line is not discarded
+    whatever its shape."""
+    return _BROKEN.search(line) is None and _PROMPT_LINE.search(line) is None and _STATUS_ROW.match(line) is not None
 
 
 def read_shell_line(screen: str) -> ShellLine:
