@@ -11,6 +11,7 @@ import pytest
 
 from e2e import journeys
 from e2e.terminal import TerminalBusy
+from tests.busy import skip_for_busy_terminal
 
 
 @pytest.mark.live
@@ -19,7 +20,6 @@ def test_ssh_instructions_on_the_page_let_you_log_in(board_page, evidence, known
     try:
         journeys.direct_ssh_works(session, evidence, known_hosts)
     except TerminalBusy as exc:
-        # The ssh login lands in the same shared tmux session as the web
-        # terminal. A visitor's command on the line is not a fault in the
-        # board, and nothing was typed; -ra puts this reason in the summary.
-        pytest.skip(f"the shared shell is in use, so nothing was typed into it: {exc}")
+        # The ssh login lands in the shared tmux session; a visitor's text on
+        # the line means nothing was sent. Skipped with the reason.
+        skip_for_busy_terminal(evidence, exc)

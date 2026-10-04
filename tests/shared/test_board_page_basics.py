@@ -10,6 +10,7 @@ import pytest
 
 from e2e import journeys
 from e2e.terminal import TerminalBusy
+from tests.busy import skip_for_busy_terminal
 
 
 @pytest.mark.live
@@ -19,7 +20,6 @@ def test_a_board_page_gives_you_a_live_camera_and_a_working_terminal(board_page,
     try:
         journeys.terminal_reaches_the_board(session, evidence)
     except TerminalBusy as exc:
-        # Skipped, not failed: a visitor using the shared terminal is not a
-        # fault in the board, and the camera was already checked above. The
-        # test is typing nothing, and -ra puts this reason in the summary.
-        pytest.skip(f"the shared terminal is in use, so nothing was typed into it: {exc}")
+        # A visitor on the shared terminal: skipped with the reason, nothing
+        # typed. A dead terminal is not this: it fails as it always did.
+        skip_for_busy_terminal(evidence, exc)

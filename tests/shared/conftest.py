@@ -7,6 +7,8 @@ import pytest
 from e2e.picker import OnDead, choose
 from e2e.session import BoardSession, open_board
 from e2e.site import parse_boards
+from e2e.terminal import TerminalBusy
+from tests.busy import skip_for_busy_terminal
 
 
 @pytest.fixture
@@ -41,7 +43,12 @@ def board_page(
         for board in candidates:
             session = open_board(browser, browser_context_args, site, board)
             opened.append(session)
-            ok, why = _is_working(session)
+            try:
+                ok, why = _is_working(session)
+            except TerminalBusy as exc:
+                # A visitor is typing: skip with the reason. A terminal with no
+                # prompt at all is dead, and still lands in `problems` below.
+                skip_for_busy_terminal(evidence, exc)
             if ok:
                 print(f"[e2e] testing on {board.hostname} ({board.fpga_board})")
                 if problems:
