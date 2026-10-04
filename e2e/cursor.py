@@ -90,6 +90,20 @@ def find_cursors(image: Image.Image) -> list[Box]:
     return found
 
 
+def glyph_before(image: Image.Image, box: Box) -> bool:
+    """Is there ink in the character cell just left of this cursor?
+
+    On an idle prompt that cell is the space after "$ ". Ink in it is a typed
+    character against the cursor, which OCR may drop altogether (a lone "l"
+    or "1"), so it is checked in the picture and never left to OCR.
+    """
+    left, top, right, bottom = box
+    width = right - left
+    array = np.asarray(image.convert("RGB"))
+    ink = np.abs(array.astype(np.int16) - _background(array).astype(np.int16)).max(axis=2) > INK
+    return bool(ink[top:bottom, max(left - width, 0) : left].any())
+
+
 def blank_cursors(image: Image.Image) -> tuple[Image.Image, list[Box]]:
     """The screenshot with every cursor painted over in the background colour, and where they were."""
     boxes = find_cursors(image)
@@ -98,5 +112,6 @@ def blank_cursors(image: Image.Image) -> tuple[Image.Image, list[Box]]:
     array = np.array(image.convert("RGB"))
     background = _background(array)
     for left, top, right, bottom in boxes:
-        array[max(top - 1, 0) : bottom + 1, max(left - 1, 0) : right + 1] = background
+        # Exactly the cursor's own box, no margin: a margin would swallow the edge of a glyph abutting it.
+        array[top:bottom, left:right] = background
     return Image.fromarray(array), boxes

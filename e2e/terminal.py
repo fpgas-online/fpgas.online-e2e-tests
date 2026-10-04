@@ -298,6 +298,8 @@ class WebTerminal:
     # Whether the last screen read found the cursor in the picture (and so
     # blanked it before OCR); None until a screen has been read.
     _cursor_seen: bool | None = None
+    # Whether the last screen read had ink in the cell just left of a cursor it found.
+    _glyph_against_cursor: bool = False
 
     def __init__(self, page, frame_selector: str = "#wssh_if", prompt: str = DEFAULT_PROMPT):
         self.page = page
@@ -486,22 +488,31 @@ class WebTerminal:
         # The cursor is blanked out of the picture before OCR (see e2e.cursor),
         # so text after the prompt is glyphs. xterm blinks it, though, and a
         # shot taken in the off phase shows none: look again a few times for
-        # one. Text after the prompt with no cursor in sight in any shot cannot
-        # be told from a misread cursor, which is a failure, not a visitor.
+        # one. With no cursor found in any look, what follows the prompt is
+        # glyph ink (a painted-out cursor leaves none): a visitor typing right
+        # up against the cursor merges with it, so no separate block is found.
+        # That is a visitor only if every look read the same text on the last
+        # prompt row with nothing under it that reads as a fault; text that
+        # changes from look to look is not trusted either way.
+        looks = []
         for look in range(CURSOR_LOOKS):
             screen = self._ocr_visible()
+            line = read_shell_line(screen)
+            looks.append((line.state, line.text))
             if self._cursor_seen is not False or look == CURSOR_LOOKS - 1:
                 break
             self.page.wait_for_timeout(400)
-        line = read_shell_line(screen)
-        if line.state == "busy" and self._cursor_seen is False:
+        if line.state == "busy" and self._cursor_seen is False and len(set(looks)) != 1:
             raise TerminalLost(
-                f"nothing was typed: {line.text!r} follows the prompt but no cursor was found in {CURSOR_LOOKS} "
-                f"looks, so a visitor's text cannot be told from a misread cursor; "
+                f"nothing was typed: {line.text!r} follows the prompt, no cursor was found in {CURSOR_LOOKS} "
+                f"looks and the reading changed between them ({looks!r}), so it cannot be told from a misread; "
                 f"the screen reads {ocr.normalise(screen)[-300:]!r}"
             )
         if line.state == "busy":
             raise TerminalBusy(self.busy_reason(line.text, screen))
+        if line.state == "free" and self._glyph_against_cursor:
+            # OCR dropped a lone typed character (an "l", a "1") against the cursor; the picture has it.
+            raise TerminalBusy(self.busy_reason("a character OCR could not read, against the cursor", screen))
         if line.state != "free":
             raise TerminalLost(
                 f"nothing was typed: the shell's line is {line.state} ({line.text!r}); "
@@ -601,6 +612,8 @@ class WebTerminal:
             .screenshot(timeout=timeout * 1000),
             wait=retry_wait,
         )
-        picture, cursors = cursor.blank_cursors(Image.open(io.BytesIO(shot)))
+        original = Image.open(io.BytesIO(shot))
+        picture, cursors = cursor.blank_cursors(original)
         self._cursor_seen = bool(cursors)
+        self._glyph_against_cursor = any(cursor.glyph_before(original, box) for box in cursors)
         return ocr.read_text(picture, psm=6)

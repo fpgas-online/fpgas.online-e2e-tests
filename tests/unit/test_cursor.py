@@ -143,9 +143,80 @@ def test_a_blinking_cursor_is_looked_for_again_and_the_shot_that_has_it_decides(
     assert term.reads == 2
 
 
-def test_text_after_the_prompt_with_no_cursor_in_any_look_is_a_failure_not_a_skip():
-    term = _terminal([(PROMPT + "9}", False)])
-    with pytest.raises(TerminalLost, match="no cursor was found") as caught:
+def test_text_that_stays_the_same_in_every_look_with_no_cursor_found_is_a_visitor_typing_against_it():
+    """Typed text merged with the cursor leaves no separate block; stable text on the last prompt row is busy."""
+    term = _terminal([(PROMPT + "l", False)])
+    with pytest.raises(TerminalBusy, match="a visitor is using the terminal") as caught:
+        term.refuse_if_busy()
+    assert "13:47:56 pi@pi-sw2-p47" in str(caught.value)  # the reason quotes the screen
+    assert term.reads == 4
+
+
+def test_text_that_changes_between_looks_with_no_cursor_found_is_a_failure_not_a_skip():
+    term = _terminal([(PROMPT + "9}", False), (PROMPT + "9)", False), (PROMPT + "l}", False), (PROMPT + "9}", False)])
+    with pytest.raises(TerminalLost, match="changed between") as caught:
         term.refuse_if_busy()
     assert not isinstance(caught.value, TerminalBusy)
-    assert term.reads == 4
+
+
+def test_a_fault_under_stable_text_with_no_cursor_found_is_never_a_visitor():
+    term = _terminal([(PROMPT + "ls\nbash: /usr/bin/ls: Stale file handle", False)])
+    with pytest.raises(TerminalLost) as caught:
+        term.refuse_if_busy()
+    assert not isinstance(caught.value, TerminalBusy)
+
+
+# --- a glyph abutting the cursor must survive the blanking ---
+
+
+def _abutting(glyph, gap):
+    """A prompt, then `glyph`, then the cursor `gap` pixels after the glyph's own ink ends."""
+    image = Image.new("RGB", (400, 60), "black")
+    draw = ImageDraw.Draw(image)
+    draw.text((4, 4), "12:00:00 pi@h:~ $ ", fill="white", font=FONT)
+    x = 4 + round(draw.textlength("12:00:00 pi@h:~ $ ", font=FONT))
+    draw.text((x, 4), glyph, fill="white", font=FONT)
+    ink_right = max(i for i in range(image.width) if any(image.getpixel((i, y))[0] > 80 for y in range(60)))
+    left = ink_right + 1 + gap
+    draw.rectangle((left, 4, left + 8, 20), fill="white")
+    return image, (left, 4, left + 9, 21)
+
+
+@pytest.mark.parametrize("glyph", ["l", "i", "|", "1"])
+@pytest.mark.parametrize("gap", [0, 1, 2])
+def test_a_typed_glyph_abutting_the_cursor_is_never_erased_with_it(glyph, gap):
+    import numpy as np
+
+    image, box = _abutting(glyph, gap)
+    blanked, boxes = cursor.blank_cursors(image)
+    before, after = np.asarray(image), np.asarray(blanked)
+    if boxes:
+        assert boxes[0][:3] == box[:3] and boxes[0][3] in (box[3] - 1, box[3])  # the cursor, nothing wider
+    outside = np.ones(before.shape[:2], dtype=bool)
+    outside[box[1] : box[3], box[0] : box[2]] = False
+    if boxes:
+        assert (before[outside] == after[outside]).all()  # every pixel but the cursor's own is untouched
+    else:
+        assert (before == after).all()  # merged with the glyph: nothing blanked, the ink is left to be read
+
+
+@pytest.mark.parametrize("glyph", ["l", "i", "|", "1"])
+@pytest.mark.parametrize("gap", [0, 1, 2])
+def test_a_typed_glyph_abutting_the_cursor_is_seen_in_the_picture_whatever_ocr_makes_of_it(glyph, gap):
+    """Either merged with the cursor (no block found: the stable-text path) or ink in the cell left of it."""
+    image, _ = _abutting(glyph, gap)
+    boxes = cursor.find_cursors(image)
+    assert not boxes or all(cursor.glyph_before(image, box) for box in boxes)
+
+
+@pytest.mark.parametrize("name", ["idle-block-cursor-a", "idle-block-cursor-b"])
+def test_nothing_is_left_of_the_idle_cursor_in_the_real_screens(name):
+    image = Image.open(FIXTURES / f"{name}-2026-10-04.png")
+    assert [cursor.glyph_before(image, box) for box in cursor.find_cursors(image)] == [False]
+
+
+def test_ocr_dropping_a_lone_glyph_against_the_cursor_is_a_visitor_not_a_free_line():
+    term = _terminal([(PROMPT, True)])
+    term._glyph_against_cursor = True
+    with pytest.raises(TerminalBusy, match="a character OCR could not read"):
+        term.refuse_if_busy()
