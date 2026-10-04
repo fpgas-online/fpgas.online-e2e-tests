@@ -164,10 +164,12 @@ def log_in_with_the_printed_command(
 
         text = _read_until(child, lambda t: at_a_prompt(t, prompt), timeout)
         transcript += text
+        # A prompt line with someone's text after it never matches at_a_prompt,
+        # so this has to be told apart from "no shell" first: that is a visitor.
+        refuse_if_line_busy(ocr.strip_ansi(text))
         if not at_a_prompt(ocr.strip_ansi(text), prompt):
             raise SshFailed(f"no shell prompt after typing the banner's password; saw {ocr.normalise(text)!r}")
 
-        refuse_if_line_busy(ocr.strip_ansi(text))
         outputs: dict[str, str] = {}
         for cmd in commands:
             child.sendline(cmd)

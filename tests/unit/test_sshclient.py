@@ -1,5 +1,6 @@
 import pytest
 
+from e2e import sshclient
 from e2e.sshclient import banner_from, printed_command_argv
 
 # What OpenSSH prints, first connection to ps1 pi7, up to the password prompt.
@@ -48,3 +49,77 @@ def test_a_half_typed_command_after_login_is_refused_before_anything_is_sent():
 
     with pytest.raises(TerminalBusy, match="sudo apt install pipx"):
         refuse_if_line_busy("06:25:33 pi@pi2:~/Demos $ sudo apt install pipx\r\n")
+
+
+class _FakeChild:
+    """A pexpect child that is a shell behind ssh: `login_screen` is what tmux paints after the password."""
+
+    def __init__(self, login_screen):
+        self.login_screen = login_screen
+        self.sent = []
+        self.pending = []
+        self.before = "ship7ohT\r\npi@ps1.fpgas.online's "
+        self.after = "password:"
+
+    def expect(self, patterns, **_kwargs):
+        return 1  # the password prompt
+
+    def sendline(self, line):
+        self.sent.append(line)
+        if line == "ship7ohT":
+            self.pending.append(self.login_screen)
+        elif line == "hostname":
+            self.pending.append("hostname\r\npi7\r\n03:30:00 pi@pi7:~ $ ")
+
+    def read_nonblocking(self, size=4096, timeout=0.5):
+        if self.pending:
+            return self.pending.pop(0)
+        raise sshclient.pexpect.TIMEOUT("nothing more")
+
+    def close(self, force=False):
+        pass
+
+
+def _login(monkeypatch, tmp_path, login_screen):
+    child = _FakeChild(login_screen)
+    monkeypatch.setattr(sshclient.pexpect, "spawn", lambda *args, **kwargs: child)
+    result = sshclient.log_in_with_the_printed_command(
+        "ssh -p 10722 pi@ps1.fpgas.online", ["hostname"], tmp_path / "known_hosts", timeout=5
+    )
+    return child, result
+
+
+def test_login_sends_the_command_when_the_line_is_free(monkeypatch, tmp_path):
+    child, result = _login(monkeypatch, tmp_path, "Last login: Sat\r\n03:29:00 pi@pi7:~ $ \r\n")
+    assert child.sent == ["ship7ohT", "hostname"]
+    assert result.outputs["hostname"] == "pi7"
+
+
+def test_login_checks_the_line_before_its_first_sendline(monkeypatch, tmp_path):
+    """Delete the refuse_if_line_busy call in log_in_with_the_printed_command and this fails."""
+    from e2e.terminal import TerminalBusy
+
+    child = _FakeChild("Last login: Sat\r\n03:29:00 pi@pi7:~ $ sudo apt install pipx\r\n")
+    monkeypatch.setattr(sshclient.pexpect, "spawn", lambda *args, **kwargs: child)
+
+    with pytest.raises(TerminalBusy, match="a visitor is using the terminal: 'sudo apt install pipx'"):
+        sshclient.log_in_with_the_printed_command(
+            "ssh -p 10722 pi@ps1.fpgas.online", ["hostname"], tmp_path / "known_hosts", timeout=5
+        )
+
+    assert child.sent == ["ship7ohT"]  # only the password; the command never reached the shared shell
+
+
+def test_a_login_that_reaches_no_prompt_at_all_is_still_an_ssh_failure_not_a_busy_skip(monkeypatch, tmp_path):
+    from e2e.terminal import TerminalBusy
+
+    child = _FakeChild("Permission denied, please try again.\r\n")
+    monkeypatch.setattr(sshclient.pexpect, "spawn", lambda *args, **kwargs: child)
+
+    with pytest.raises(sshclient.SshFailed) as caught:
+        sshclient.log_in_with_the_printed_command(
+            "ssh -p 10722 pi@ps1.fpgas.online", ["hostname"], tmp_path / "known_hosts", timeout=2
+        )
+
+    assert not isinstance(caught.value, TerminalBusy)
+    assert child.sent == ["ship7ohT"]
