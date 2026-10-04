@@ -24,7 +24,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--boards",
         default="",
-        help="audit only these boards, by hostname or piNN (comma separated); for development runs",
+        help="audit only these boards, by hostname (comma separated); for development runs",
     )
 
 

@@ -15,7 +15,8 @@ def board_page(
 ):
     """Factory: board_page() -> BoardSession on a live, working board.
 
-    Any board the index lists will do, and every one is assumed to be an Arty.
+    Any board the index lists will do, and what FPGA it is comes from what the
+    index shows (Board.fpga_type).
     Every board page opened is screenshotted and closed when the test ends,
     whatever happened: pytest-playwright only records its own context, and
     every failure happens on ours.

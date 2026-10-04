@@ -128,14 +128,6 @@ def test_check_stopped_fires_on_a_picture_that_really_sticks(monkeypatch):
     assert "did not move" in detail
 
 
-def test_check_stopped_fires_when_the_picture_goes_dark(monkeypatch):
-    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: None)
-    cam = _FakeCamera([1, None, None, None, None, None], then="stuck")
-    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
-    assert stopped
-    assert "no clock readable" in detail
-
-
 def test_check_stopped_does_not_fire_on_a_faint_clock_that_ocr_cannot_read(monkeypatch):
     """welland p33/p37: the digits are unreadable but plainly ticking."""
     monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: None)
@@ -153,3 +145,46 @@ def test_changed_fraction_counts_pixels_not_brightness():
 def test_changed_fraction_ignores_compression_noise():
     noisy = _solid((10, 10, 10))
     assert camera.changed_fraction(_solid("black"), noisy) == 0.0
+
+
+def _scripted_reads(monkeypatch, readings, then=None):
+    """Make OCR return `readings` in turn, then `then` (a repeated reading) forever."""
+    queue = list(readings)
+    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: queue.pop(0) if queue else then)
+
+
+def test_check_stopped_does_not_take_an_unreadable_picture_as_evidence_of_stopping(monkeypatch):
+    """Five Nones are five failures to read the overlay, not a board that lost power.
+
+    The pixels do not move here either (a dark player), which is exactly the
+    case that must still not be called stopped.
+    """
+    _scripted_reads(monkeypatch, [], then=None)
+    cam = _FakeCamera([None] * 5, then="stuck")
+    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
+    assert not stopped
+    assert "unreadable" in detail
+
+
+def test_check_stopped_does_not_take_a_clock_that_goes_unreadable_as_stopped(monkeypatch):
+    _scripted_reads(monkeypatch, ["15:59:01"], then=None)
+    cam = _FakeCamera([1, None, None, None, None], then="stuck")
+    stopped, detail = cam.check_stopped(timeout=1.0, gap=0.0)
+    assert not stopped
+    assert "unreadable" in detail
+
+
+def test_check_stopped_does_not_fire_on_an_advancing_clock(monkeypatch):
+    seconds = iter(range(1000))
+    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: f"15:59:{next(seconds) % 60:02d}")
+    cam = _FakeCamera([1, 2], then="ticking")
+    stopped, detail = cam.check_stopped(timeout=0.3, gap=0.0)
+    assert not stopped, detail
+
+
+def test_check_stopped_needs_the_pixels_still_as_well_as_the_digits(monkeypatch):
+    """One misread digit string repeated over a clock that is plainly ticking is not a stopped board."""
+    monkeypatch.setattr(camera.ocr, "read_clock", lambda _img: "15:59:07")
+    cam = _FakeCamera([1, 2, 3, 4, 5, 6], then="ticking")
+    stopped, detail = cam.check_stopped(timeout=0.3, gap=0.0)
+    assert not stopped, detail

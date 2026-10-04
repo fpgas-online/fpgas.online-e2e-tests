@@ -163,3 +163,14 @@ def test_a_skipped_cell_is_neither_a_pass_nor_a_failure():
     assert row.failures == []
     assert row.check("upload").cell == "skipped"
     assert "upload" not in render_text("ps1", [row], when=WHEN).split("seen:")[-1]
+
+
+def test_an_acorn_has_no_bitstream_so_the_audit_marks_its_upload_skipped():
+    """audit_board checks loadable_for before the upload step; None means a skipped cell."""
+    from e2e import journeys
+
+    class _Session:
+        board = Board("acorn-host", 1, "Acorn CLE-215+")
+
+    assert journeys.loadable_for(_Session.board) is None
+    assert "acorn" in journeys.no_bitstream_reason(_Session.board)

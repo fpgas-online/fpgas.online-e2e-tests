@@ -133,6 +133,11 @@ def audit_board(session, known_hosts, quick: bool = False) -> BoardAudit:
         if quick and name in DISRUPTIVE:
             row.checks.append(Check(name=name, passed=False, detail="not tried (--quick)", skipped=True))
             continue
+        if name == "upload" and journeys.loadable_for(session.board) is None:
+            row.checks.append(
+                Check(name=name, passed=False, detail=journeys.no_bitstream_reason(session.board), skipped=True)
+            )
+            continue
         row.checks.append(run_journey(name, journey, note_from=note_from, needs_ground_truth=needs_ground_truth))
     return row
 

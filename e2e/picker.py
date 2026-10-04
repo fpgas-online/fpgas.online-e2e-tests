@@ -4,10 +4,10 @@ One board per run, picked at random, so a user is unlikely to collide with a
 test and the fleet is exercised evenly. The seed is printed by the test
 session so any run can be replayed against the same board.
 
-Every board is treated as an Arty. The sites do not reliably say what FPGA is
-fitted -- ps1 names none at all -- so filtering by the advertised type only
-meant refusing to test anything. A board that turns out not to be an Arty
-fails inside the test, where the failure names the real problem.
+Every board the index lists is a candidate: filtering by advertised type meant
+refusing to test anything, since ps1 names none. What FPGA a board has is
+Board.fpga_type, read from what the site shows; a test that needs a particular
+type for its fixtures skips, naming the type, rather than assuming one.
 """
 
 from __future__ import annotations

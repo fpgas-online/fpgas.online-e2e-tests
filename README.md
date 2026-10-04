@@ -51,8 +51,8 @@ producing one row per board:
 
     ### ps1: 9 boards, audited 2026-09-14T04:10:22Z
     board  page  camera             terminal  poe status  ssh   upload  power cycle
-    pi2    ok    FAIL               FAIL      ok (on)     FAIL  FAIL    FAIL
-    pi7    ok    ok (reset needed)  ok        ok (on)     ok    FAIL    ok
+    HOST2  ok    FAIL               FAIL      ok (on)     FAIL  FAIL    FAIL
+    HOST7  ok    ok (reset needed)  ok        ok (on)     ok    FAIL    ok
     ...
 
     why:
@@ -65,7 +65,9 @@ seen. The test fails if any cell failed.
 
 It power-cycles every board, so it is not on the six-hourly schedule: run it
 from the Actions page with the "audit" box ticked, or by hand. `--boards
-pi7,pi9` narrows it during development.
+HOSTNAME,HOSTNAME` (hostnames as the index lists them) narrows it during
+development. A board whose FPGA type has no bitstream in this repo (every Acorn)
+shows "skipped" in the upload column.
 
 ## How it decides something works
 

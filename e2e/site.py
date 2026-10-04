@@ -14,9 +14,11 @@ SITES = {
     "ps1": "https://ps1.fpgas.online",
 }
 
-# welland heads a card "pi-sw2-p16"; ps1, still on the pre-split build, "FPGA pi2".
+# welland heads a card "pi-sw2-p46" and links pi-sw2-p46.html; ps1, still on the
+# pre-split build, "FPGA pi2" and pi2.html.
 _HOSTNAME_PREFIX = re.compile(r"^\s*FPGA\s+", re.IGNORECASE)
-_PAGE_HREF = re.compile(r"^pi(\d+)\.html$")
+_PAGE_HREF = re.compile(r"^[\w.-]+\.html$")
+_PLAYER_ID = re.compile(r"^video-player(\d+)$")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,9 +44,9 @@ class Site:
 def parse_boards(html: str) -> list[Board]:
     """Read the board cards off a rendered /fpgas/ page.
 
-    Each card is a table whose first cell holds an <h1> with the board name and
+    Each card is a table whose first cell holds an <h1> with the hostname and
     (on current deployments) the FPGA name as trailing text, and whose second
-    cell links to piNN.html. PS1 runs an older build whose heading reads
+    cell links to its <hostname>.html page. PS1 runs an older build whose heading reads
     "FPGA pi2" and which names no FPGA at all.
     """
     soup = BeautifulSoup(html, "html.parser")
@@ -57,7 +59,12 @@ def parse_boards(html: str) -> list[Board]:
         if heading is None:
             continue
         hostname = _HOSTNAME_PREFIX.sub("", heading.get_text()).strip()
-        port = int(_PAGE_HREF.match(link["href"]).group(1))
+        # The page is named by hostname, but the page's element ids carry the
+        # switch port, which the card's own player id states.
+        player = card.find(id=_PLAYER_ID)
+        if player is None:
+            raise ValueError(f"the card for {hostname!r} has no video-player<port> element to take the port from")
+        port = int(_PLAYER_ID.match(player["id"]).group(1))
         fpga = "".join(s for s in heading.next_siblings if isinstance(s, str)).strip()
         boards.append(Board(hostname=hostname, port=port, fpga_board=fpga))
     return boards

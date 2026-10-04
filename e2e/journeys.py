@@ -234,7 +234,14 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
 
 # -- bitstream upload ---------------------------------------------------------
 
-BITSTREAM = Path(__file__).parents[1] / "fixtures" / "counter_test" / "top.bit"
+FIXTURES = Path(__file__).parents[1] / "fixtures"
+# What this repo can load, by the FPGA type the site shows for the board:
+# (bitstream fixture, openFPGALoader arguments). A type absent from here has
+# no bitstream in this repo, and the upload is skipped (by the test) or marked
+# skipped (by the audit) rather than guessed at.
+LOADABLE = {
+    "arty": (FIXTURES / "counter_test" / "top.bit", "-b arty"),
+}
 # Where the page's own scp instructions put files ("...:Uploads"), spelled out
 # because the shared tmux session is not necessarily at $HOME: the page's
 # "Blink LEDs" button leaves it in ~/Demos/counter_test.
@@ -279,6 +286,19 @@ def file_is_fresh(text: str, window: int = 600) -> tuple[bool, str]:
     return 0 <= age <= window, f"the file is {age}s old by the Pi's own clock (now {now}, mtime {mtime})"
 
 
+def loadable_for(board) -> tuple[Path, str] | None:
+    """The bitstream and loader arguments for this board's FPGA type, or None."""
+    return LOADABLE.get(board.fpga_type)
+
+
+def no_bitstream_reason(board) -> str:
+    """Why the upload cannot be tried on this board; used when `loadable_for` is None."""
+    return (
+        f"{board.hostname}: no bitstream fixture or loader command for FPGA type "
+        f"{board.fpga_type!r} (the site shows {board.fpga_board!r})"
+    )
+
+
 def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> None:
     """Can a person upload a bitstream through the form and see it running?
 
@@ -291,13 +311,17 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
     LEDs" button loads, so the camera proves "the LEDs changed and are
     counting" but not "this upload is what is running".
     """
+    loadable = loadable_for(session.board)
+    if loadable is None:
+        raise ValueError(no_bitstream_reason(session.board))
+    bitstream, loader_args = loadable
     page, terminal, camera = session.page, session.terminal, session.camera
 
     live, detail = camera.check_live_with_recovery(timeout=60)
     evidence.ground_truth("the camera is live before the upload", live, detail=detail)
     before = camera.shot()
 
-    page.set_input_files("#upform input[type=file]", str(BITSTREAM))
+    page.set_input_files("#upform input[type=file]", str(bitstream))
     page.click("#upform input[type=submit]")
     try:
         page.wait_for_load_state("domcontentloaded")
@@ -326,7 +350,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
     # from a previous run, or another user's, satisfies it just as well. A
     # person checks the file is new, so ask when it was written too.
     listing = terminal.run(f"ls -l {REMOTE}")
-    shown, detail = listing.shows(str(BITSTREAM.stat().st_size))
+    shown, detail = listing.shows(str(bitstream.stat().st_size))
     evidence.ground_truth("the bitstream really landed on the Pi at the right size", shown, detail=detail)
 
     stamped = terminal.run(f"date +%s; stat -c %Y {REMOTE}")
@@ -337,7 +361,7 @@ def upload_programs_the_board(session: BoardSession, evidence: EvidenceLog) -> N
         detail = f"{detail}; {shown}"
     evidence.ground_truth("the file on the Pi was written just now, not left over from before", fresh, detail=detail)
 
-    programming = terminal.run(f"openFPGALoader -b arty {REMOTE}", timeout=180)
+    programming = terminal.run(f"openFPGALoader {loader_args} {REMOTE}", timeout=180)
     status, detail = terminal.exit_status()
     evidence.ground_truth(
         "openFPGALoader programmed the FPGA",

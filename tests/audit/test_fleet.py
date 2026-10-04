@@ -36,7 +36,7 @@ def test_every_board_at_the_site(
         detail=f"listed: {[b.hostname for b in boards]}",
     )
     if boards_wanted:
-        boards = [b for b in boards if b.hostname in boards_wanted or f"pi{b.port}" in boards_wanted]
+        boards = [b for b in boards if b.hostname in boards_wanted]
         assert boards, f"--boards {sorted(boards_wanted)} matched none of the boards the index lists"
 
     rows = []

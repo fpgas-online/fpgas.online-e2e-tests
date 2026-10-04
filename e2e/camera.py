@@ -271,27 +271,56 @@ class Camera:
         about, which is what a buffer does, not what a dead board does.
 
         What a person sees when the power goes is a frame that sits there,
-        clock and all. So require the clock's pixels not to move across
-        several shots running -- which also covers the dark player, where
-        there is no clock -- before saying it stopped. Five shots three
-        seconds apart: a player can stall for a few seconds on a live feed
-        without the board having gone anywhere.
+        clock and all. So require a clock that was readable and then stays at
+        one readable value for several readings running, and whose pixels did
+        not move across those same shots. An unreadable reading is never
+        evidence of stopping: it may be OCR failing on a low-contrast overlay,
+        a dark player or a page error, and "the board lost power" must not be
+        concluded from "the clock could not be read" (the pixels moving or
+        not is the audit's way to tell a faint clock that ticks from one that
+        stopped, but only once a readable value agrees). A check that only
+        ever saw unreadable readings reports that, as a failure of the check.
+        Five shots three seconds apart: a player can stall for a few seconds
+        on a live feed without the board having gone anywhere.
         """
         deadline = time.monotonic() + timeout
-        shots: list = []
-        readings: list[str | None] = []
+        seen: list[str | None] = []
+        run: list[str] = []  # consecutive identical readable readings
+        shots: list = []  # the shots behind `run`
         while time.monotonic() < deadline:
-            shots.append(self.shot())
-            shots = shots[-consecutive:]
-            if len(shots) == consecutive:
+            shot = self.shot()
+            try:
+                reading = ocr.read_clock(crop_fraction(shot, *CLOCK_REGION))
+            except Exception:  # noqa: BLE001 - an unreadable picture is a reading too
+                reading = None
+            seen.append(reading)
+            if reading is None:
+                run, shots = [], []
+            elif run and run[-1] != reading:
+                run, shots = [reading], [shot]
+            else:
+                run.append(reading)
+                shots.append(shot)
+            if len(run) >= consecutive:
+                shots = shots[-consecutive:]
                 ticks = [changed_fraction(a, b, region=CLOCK_REGION) for a, b in zip(shots, shots[1:])]
                 if all(tick <= TICK for tick in ticks):
-                    clock = ocr.read_clock(crop_fraction(shots[-1], *CLOCK_REGION))
-                    stuck = "no clock readable" if clock is None else f"clock stuck at {clock!r}"
-                    return True, f"{stuck}; its pixels did not move across {consecutive} shots {gap}s apart"
-            readings.append(ocr.read_clock(crop_fraction(shots[-1], *CLOCK_REGION)))
+                    return True, (
+                        f"clock stuck at {run[0]!r} across {consecutive} readable readings {gap}s apart; "
+                        f"its pixels did not move"
+                    )
             time.sleep(gap)
-        return False, f"the picture never stuck within {timeout}s; last readings {readings[-consecutive:]}"
+        readable = [r for r in seen if r is not None]
+        if not readable:
+            return False, (
+                f"the clock was unreadable on all {len(seen)} readings within {timeout}s, "
+                "so whether the picture stopped cannot be told"
+            )
+        unreadable = len(seen) - len(readable)
+        return False, (
+            f"the picture never stuck at one readable clock value within {timeout}s; "
+            f"last readings {seen[-6:]} ({unreadable} of {len(seen)} unreadable)"
+        )
 
     def check_live(self, timeout: float, gap: float = 3.0) -> tuple[bool, str]:
         """Did the picture come alive within the timeout? Reports, never raises.
