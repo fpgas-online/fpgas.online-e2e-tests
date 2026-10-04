@@ -249,3 +249,25 @@ def test_a_board_that_would_not_open_becomes_a_failed_row_quoting_the_exception(
     assert row.failures == [page]
     # and it renders, with the reason under the table
     assert "TimeoutError" in render_text("ps1", [row], when=WHEN)
+
+
+def _acorn_row():
+    reason = "acorn-host: no bitstream fixture or loader command for FPGA type 'acorn'"
+    checks = [Check(c, True, f"{c} fine") for c in COLUMNS if c != "upload"]
+    checks.append(Check("upload", False, reason, skipped=True))
+    return BoardAudit(Board("acorn-host", 1, "Acorn CLE-215+"), checks), reason
+
+
+def test_a_skipped_cell_has_its_reason_in_both_renderers():
+    row, reason = _acorn_row()
+    text = render_text("welland", [row], when=WHEN)
+    assert "skipped:" in text.splitlines()
+    assert f"  acorn-host upload: {reason}" in text.splitlines()
+    md = render_markdown("welland", [row], when=WHEN)
+    assert "Skipped:" in md
+    assert f"- **acorn-host upload**: {reason}" in md
+
+
+def test_no_skipped_section_when_nothing_was_skipped():
+    assert "skipped:" not in render_text("ps1", _rows(), when=WHEN)
+    assert "Skipped:" not in render_markdown("ps1", _rows(), when=WHEN)

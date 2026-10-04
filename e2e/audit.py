@@ -189,6 +189,12 @@ def render_text(site: str, rows: list[BoardAudit], when: dt.datetime | None = No
         lines.append("why:")
         for hostname, check in failures:
             lines.append(f"  {hostname} {check.name} ({check.seconds:.0f}s): {check.detail}")
+    skipped = [(row.board.hostname, c) for row in rows for c in row.checks if c.skipped]
+    if skipped:
+        lines.append("")
+        lines.append("skipped:")
+        for hostname, check in skipped:
+            lines.append(f"  {hostname} {check.name}: {check.detail}")
     passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail and not c.skipped]
     if passes:
         # What proved each pass, because a table of "ok" is a claim until it
@@ -215,6 +221,13 @@ def render_markdown(site: str, rows: list[BoardAudit], when: dt.datetime | None 
         lines.append("")
         for hostname, check in failures:
             lines.append(f"- **{hostname} {check.name}** ({check.seconds:.0f}s): {check.detail}")
+    skipped = [(row.board.hostname, c) for row in rows for c in row.checks if c.skipped]
+    if skipped:
+        lines.append("")
+        lines.append("Skipped:")
+        lines.append("")
+        for hostname, check in skipped:
+            lines.append(f"- **{hostname} {check.name}**: {check.detail}")
     passes = [(row.board.hostname, c) for row in rows for c in row.checks if c.passed and c.detail and not c.skipped]
     if passes:
         lines.append("")
