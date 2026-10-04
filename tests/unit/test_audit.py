@@ -4,6 +4,7 @@ from e2e.audit import (
     COLUMNS,
     BoardAudit,
     Check,
+    audit_board,
     camera_note,
     poe_note,
     render_markdown,
@@ -176,16 +177,6 @@ def test_a_skipped_cell_is_neither_a_pass_nor_a_failure():
     assert "upload" not in render_text("ps1", [row], when=WHEN).split("seen:")[-1]
 
 
-def test_an_acorn_has_no_bitstream_so_the_audit_marks_its_upload_skipped():
-    """audit_board checks loadable_for before the upload step; None means a skipped cell."""
-    from e2e import journeys
-
-    class _Session:
-        board = Board("acorn-host", 1, "Acorn CLE-215+")
-
-    assert journeys.loadable_for(_Session.board) is None
-    assert "acorn" in journeys.no_bitstream_reason(_Session.board)
-
 
 def test_rendering_zero_rows_does_not_raise():
     assert "0 boards" in render_text("ps1", [], when=WHEN)
@@ -271,3 +262,67 @@ def test_a_skipped_cell_has_its_reason_in_both_renderers():
 def test_no_skipped_section_when_nothing_was_skipped():
     assert "skipped:" not in render_text("ps1", _rows(), when=WHEN)
     assert "Skipped:" not in render_markdown("ps1", _rows(), when=WHEN)
+
+
+def _stub_journeys(monkeypatch, called):
+    """Every journey records that it ran and observes one passing ground truth."""
+    from e2e import journeys
+
+    def stub(name, result=None):
+        def run(*args, **kwargs):
+            called.append(name)
+            log = next(a for a in args if hasattr(a, "ground_truth"))
+            log.ground_truth(f"{name} observed", True, detail=f"{name} fine")
+            return result
+
+        return run
+
+    for name, result in (
+        ("page_names_the_board", None),
+        ("camera_is_live", None),
+        ("terminal_reaches_the_board", None),
+        ("poe_status_is_reported", "on"),
+        ("direct_ssh_works", None),
+        ("upload_programs_the_board", None),
+        ("reset_power_cycles_the_board", None),
+    ):
+        monkeypatch.setattr(journeys, name, stub(name, result))
+
+
+class _FakeSession:
+    def __init__(self, board):
+        self.board = board
+
+
+def test_the_audit_marks_an_acorns_upload_skipped_with_the_reason_and_never_runs_it(monkeypatch):
+    called = []
+    _stub_journeys(monkeypatch, called)
+    row = audit_board(_FakeSession(Board("acorn-host", 1, "Acorn CLE-215+")), known_hosts=None, disruptive=True)
+    upload = row.check("upload")
+    assert upload.skipped and not upload.passed
+    assert "acorn" in upload.detail
+    assert "upload_programs_the_board" not in called
+    assert "reset_power_cycles_the_board" in called  # the other disruptive journey still runs
+    assert row.failures == []
+
+
+def test_without_disruptive_the_upload_and_power_cycle_are_skipped_and_never_run(monkeypatch):
+    called = []
+    _stub_journeys(monkeypatch, called)
+    row = audit_board(_FakeSession(Board("pi-sw1-p2", 2, "Digilent Arty A7-35T")), known_hosts=None)
+    for name in ("upload", "power cycle"):
+        cell = row.check(name)
+        assert cell.skipped and cell.detail == "needs --disruptive"
+    assert "upload_programs_the_board" not in called
+    assert "reset_power_cycles_the_board" not in called
+    assert {"camera_is_live", "terminal_reaches_the_board", "direct_ssh_works"} <= set(called)
+    assert row.failures == []
+    assert "needs --disruptive" in render_text("welland", [row], when=WHEN)
+
+
+def test_with_disruptive_an_arty_runs_both_disruptive_journeys_last(monkeypatch):
+    called = []
+    _stub_journeys(monkeypatch, called)
+    row = audit_board(_FakeSession(Board("pi-sw1-p2", 2, "Digilent Arty A7-35T")), known_hosts=None, disruptive=True)
+    assert called[-2:] == ["upload_programs_the_board", "reset_power_cycles_the_board"]
+    assert not any(c.skipped for c in row.checks)

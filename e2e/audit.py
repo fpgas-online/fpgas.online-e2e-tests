@@ -118,15 +118,19 @@ def unopened_board_audit(board: Board, exc: BaseException) -> BoardAudit:
 
 
 DISRUPTIVE = ("upload", "power cycle")
+NEEDS_DISRUPTIVE = "needs --disruptive"
 
 
-def audit_board(session, known_hosts, quick: bool = False) -> BoardAudit:
+def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
     """Every journey, in the order a person would try them, on one open board.
 
     The disruptive ones come last -- the upload reprograms the FPGA and Reset
     reboots the Pi -- so that the readings before them describe the board as
-    a user finds it. `quick` leaves those two out, marked skipped, for a
-    look at the fleet that touches nothing.
+    a user finds it. These are public boards other people may be using, so
+    they run only when `disruptive` is true (the --disruptive option);
+    otherwise they are marked skipped, "needs --disruptive", and nothing on
+    the board is changed. The other journeys still type into the shared web
+    terminal and open the page's ssh session, which change nothing lasting.
     """
     from e2e import journeys  # noqa: PLC0415 - journeys imports the session types this module renders
 
@@ -141,8 +145,8 @@ def audit_board(session, known_hosts, quick: bool = False) -> BoardAudit:
         ("power cycle", lambda log: journeys.reset_power_cycles_the_board(session, log), None, True),
     ]
     for name, journey, note_from, needs_ground_truth in steps:
-        if quick and name in DISRUPTIVE:
-            row.checks.append(Check(name=name, passed=False, detail="not tried (--quick)", skipped=True))
+        if name in DISRUPTIVE and not disruptive:
+            row.checks.append(Check(name=name, passed=False, detail=NEEDS_DISRUPTIVE, skipped=True))
             continue
         if name == "upload" and journeys.loadable_for(session.board) is None:
             row.checks.append(

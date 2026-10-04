@@ -43,13 +43,14 @@ a failure can be replayed against the same board with `--seed`.
 
 ## Auditing a whole site
 
-    xvfb-run -a uv run pytest tests/audit --site ps1 -s
+    xvfb-run -a uv run pytest tests/audit --site ps1 -s               # changes nothing on the boards
+    xvfb-run -a uv run pytest tests/audit --site ps1 -s --disruptive  # also uploads and power-cycles
 
 Where a test picks one board and stops at the first thing wrong, the audit
 visits every board the index lists and runs the same journeys on each,
 producing one row per board:
 
-    ### ps1: 9 boards, audited 2026-09-14T04:10:22Z
+    ### ps1: 9 boards, audited 2026-09-14T04:10:22Z   (illustrative hostnames)
     board  page  camera             terminal  poe status  ssh   upload  power cycle
     HOST2  ok    FAIL               FAIL      ok (on)     FAIL  FAIL    FAIL
     HOST7  ok    ok (reset needed)  ok        ok (on)     ok    FAIL    ok
@@ -63,8 +64,14 @@ on GitHub appended to the job summary. A cell passes only if every
 observation in that journey held; the reasons under the table quote what was
 seen. The test fails if any cell failed.
 
-It power-cycles every board, so it is not on the six-hourly schedule: run it
-from the Actions page with the "audit" box ticked, or by hand. `--boards
+These are public boards that other people may be using, so the upload and the
+power cycle (which reprograms the FPGA, cuts PoE and drops the video for
+minutes) run only with `--disruptive`; without it those two cells read
+"skipped" and the reason ("needs --disruptive") is listed under the table.
+`--quick` is still accepted and changes nothing: leaving them out is the
+default now. The audit is not on the six-hourly schedule: run it from the
+Actions page with the "audit" box ticked (and "audit_disruptive" as well to
+include the upload and power cycle), or by hand. `--boards
 HOSTNAME,HOSTNAME` (hostnames as the index lists them) narrows it during
 development. A board whose FPGA type has no bitstream in this repo (every Acorn)
 shows "skipped" in the upload column.

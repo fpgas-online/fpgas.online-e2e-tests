@@ -17,9 +17,15 @@ def pytest_addoption(parser):
     parser.addoption("--seed", type=int, default=None, help="replay a previous run's board choice")
     parser.addoption("--on-dead", default="fail", choices=[m.value for m in OnDead])
     parser.addoption(
+        "--disruptive",
+        action="store_true",
+        help="audit: also upload a bitstream and power cycle every board (public boards others may be using); "
+        "without it those cells read 'skipped: needs --disruptive'",
+    )
+    parser.addoption(
         "--quick",
         action="store_true",
-        help="audit without the upload and power cycle, which change the board; those cells read 'skipped'",
+        help="accepted for compatibility, changes nothing: skipping the upload and power cycle is now the default",
     )
     parser.addoption(
         "--boards",
@@ -48,8 +54,8 @@ def on_dead(pytestconfig) -> OnDead:
 
 
 @pytest.fixture(scope="session")
-def quick(pytestconfig) -> bool:
-    return bool(pytestconfig.getoption("--quick"))
+def disruptive(pytestconfig) -> bool:
+    return bool(pytestconfig.getoption("--disruptive"))
 
 
 @pytest.fixture(scope="session")

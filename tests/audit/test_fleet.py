@@ -5,11 +5,14 @@ camera, the web terminal, the PoE status the page reports, the ssh
 instructions, and the Reset button. The table is printed at the end and
 written to the output directory; on GitHub it also lands in the job summary.
 
-This is deliberately disruptive -- every board gets power cycled -- and takes
-the best part of an hour per site, which is why it is not on the six-hourly
-schedule. Run it by hand:
+By default it changes nothing on the boards: the upload and the power cycle
+are reported as skipped ("needs --disruptive"). With --disruptive every board
+gets reprogrammed (where its FPGA type has a bitstream here) and power cycled,
+which takes the best part of an hour per site and interrupts anyone using the
+board, which is why it is not on the six-hourly schedule. Run it by hand:
 
     uv run pytest tests/audit --site ps1 -s
+    uv run pytest tests/audit --site ps1 -s --disruptive
 """
 
 from __future__ import annotations
@@ -26,7 +29,16 @@ from e2e.site import parse_boards
 
 @pytest.mark.live
 def test_every_board_at_the_site(
-    browser, browser_context_args, browser_identity, page, site, boards_wanted, known_hosts, output_dir, evidence, quick
+    browser,
+    browser_context_args,
+    browser_identity,
+    page,
+    site,
+    boards_wanted,
+    known_hosts,
+    output_dir,
+    evidence,
+    disruptive,
 ):
     page.goto(site.index_url, wait_until="domcontentloaded")
     boards = parse_boards(page.content())
@@ -51,7 +63,7 @@ def test_every_board_at_the_site(
             print(f"[audit] {board.hostname}: {row.check('page').detail}", flush=True)
             continue
         try:
-            row = audit_board(session, known_hosts, quick=quick)
+            row = audit_board(session, known_hosts, disruptive=disruptive)
         finally:
             try:
                 session.snapshot(output_dir / f"audit-{site.name}" / f"{board.hostname}.png")
