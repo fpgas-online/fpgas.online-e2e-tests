@@ -508,6 +508,20 @@ def test_a_last_row_that_is_not_the_whole_tmux_shape_is_not_a_status_row(row):
 @pytest.mark.parametrize(
     "row",
     [
+        "[exited] 0:x pi7 10:50",  # tmux-shaped, but the session is not a number
+        "Next 0:30 pi7 10:50PM",  # no session number; "30" is a time, not a window name
+        "[3] 0:30 pi7 10:50PM",  # a window name has a letter in it
+        "[main] 0:h 1:bash* pi7 10:50PM",  # a named session is not the one tmux.conf creates
+    ],
+)
+def test_a_row_with_only_the_look_of_a_status_line_is_not_dropped_as_one(row):
+    """The line above it must not read as free: these are unrecognised text, so a failure."""
+    assert read_shell_line(PROMPT + "[]\n" + row + "\n").state == "unknown"
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
         # a clock at the end is not what makes a status row: none of these may be dropped as one
         "Connection to pi closed at 10:50",
         "Connection to pi7 closed by remote host at 10:50PM",

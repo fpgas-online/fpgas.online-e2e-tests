@@ -122,10 +122,12 @@ CURSOR_TOKEN = "[]"
 # l I | for 1, S for 5, B for 8, Z for 2), all tolerated here.
 _DIGIT = r"[\dOoIl|SsBZz]"
 _CLOCK = rf"{_DIGIT}{{1,2}}\s*[:.;]\s*{_DIGIT}{{2}}\s*(?:[APap][MmNn])?[\s|\]_]*"
-_WINDOW = r"[\dOoIl|]\s*:\s*[\w.-]+[*#!~-]?"
-_STATUS_ROW = re.compile(
-    rf"^[\[(|]?[\w-]{{1,16}}?[\])|]?\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$"
-)
+# The session is a NUMBER (tmux's default session name; the older captures
+# are "default-<number>"), so "[exited]" or a word is not one. A window name
+# has a letter in it ("h", "bash"): "0:30" is a time, not a window.
+_SESSION = rf"[\[(|]?(?:default-)?{_DIGIT}{{1,4}}[\])|]?"
+_WINDOW = r"[\dOoIl|]\s*:\s*(?=[\w.-]*[A-Za-z])[\w.-]+[*#!~MZ-]?"
+_STATUS_ROW = re.compile(rf"^{_SESSION}\s*(?:{_WINDOW}\s*)+\s[\w.-]+\s+{_CLOCK}$")
 
 # Text under the prompt that is a closed session, an error or a system message.
 # A visitor's running command can print any of it, so on a line with typed text
