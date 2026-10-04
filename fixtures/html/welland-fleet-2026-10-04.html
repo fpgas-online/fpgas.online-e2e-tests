@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fleet machines — fpgas.online</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #222; }
+    h1 { font-size: 1.4rem; }
+    table { border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 0.3rem 0.6rem; text-align: left; }
+    th { background: #f0f0f0; }
+    .badge { padding: 0.1rem 0.5rem; border-radius: 0.6rem; font-size: 0.85em; }
+    .online { background: #c9f7c9; }
+    .offline { background: #f7c9c9; }
+    .verifying { background: #f7ecc9; }
+    .muted { color: #888; }
+    .missing { color: #b00; }
+    details { margin: 0.4rem 0; }
+    pre { background: #f7f7f7; padding: 0.6rem; overflow-x: auto; }
+    a { color: #06c; }
+  </style>
+</head>
+<body>
+<div id="fo-uc" role="status">
+  <span>&#9888; <strong>Under construction!</strong>
+    (Broken? Try <a href="https://ps1.fpgas.online/">ps1.fpgas.online</a>)</span>
+  <button type="button" id="fo-uc-dismiss" aria-label="Dismiss this notice">&#10005;</button>
+</div>
+<style>
+#fo-uc {
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25em 0.75em;
+  width: 100%;
+  margin: 0;
+  padding: 0.6em 1em;
+  background: #fff3cd;
+  color: #4a3b00;
+  border-bottom: 1px solid #e0c86a;
+  font: 400 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-align: center;
+}
+#fo-uc a { color: inherit; font-weight: 600; }
+#fo-uc-dismiss {
+  flex: none;
+  padding: 0.2em 0.4em;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.7;
+}
+#fo-uc-dismiss:hover, #fo-uc-dismiss:focus { opacity: 1; }
+</style>
+<script>
+(function () {
+  var bar = document.getElementById('fo-uc');
+  if (!bar) return;
+  // Clients that send Sec-Fetch-Dest never get here in a frame; this covers
+  // the ones that do not send it (Safari before 16.4), which the middleware
+  // has to treat as a top-level navigation.
+  if (window.top !== window.self) { bar.parentNode.removeChild(bar); return; }
+  document.getElementById('fo-uc-dismiss').addEventListener('click', function () {
+    document.cookie = 'fo_uc_dismissed=1; max-age=604800; path=/; SameSite=Lax';
+    bar.parentNode.removeChild(bar);
+  });
+})();
+</script>
+
+<p><a href="/fleet/">fleet</a> · <a href="/fpgas/">boards</a></p>
+
+<h1>Fleet machines</h1>
+<table>
+  <tr><th>Hostname</th><th>Site</th><th>Serial</th><th>Model</th>
+      <th>FPGA boards</th><th>Status</th><th>FPGA check</th><th>Last seen</th></tr>
+  
+  <tr>
+    <td><a href="/fleet/000000004fe3e7e4/">pi-sw1-p10</a></td>
+    <td>welland</td>
+    <td>000000004fe3e7e4</td>
+    <td>Raspberry Pi 3 Model B Plus Rev 1.3</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:41.118748+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/00000000e2eb5dbf/">pi-sw1-p12</a></td>
+    <td>welland</td>
+    <td>00000000e2eb5dbf</td>
+    <td>Raspberry Pi 3 Model B Plus Rev 1.3</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:23.991611+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/000000007ce37c3c/">pi-sw1-p14</a></td>
+    <td>welland</td>
+    <td>000000007ce37c3c</td>
+    <td>Raspberry Pi 3 Model B Plus Rev 1.3</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:46.622900+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/000000007fc62979/">pi-sw1-p16</a></td>
+    <td>welland</td>
+    <td>000000007fc62979</td>
+    <td>Raspberry Pi 3 Model B Plus Rev 1.3</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:52:57.766683+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/00000000cc479fd1/">pi-sw1-p17</a></td>
+    <td>welland</td>
+    <td>00000000cc479fd1</td>
+    <td>Raspberry Pi 3 Model B Plus Rev 1.3</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T12:53:45.362010+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/00000000412ce8de/">pi-sw1-p18</a></td>
+    <td>welland</td>
+    <td>00000000412ce8de</td>
+    <td>Raspberry Pi 3 Model B Plus Rev 1.3</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:21.561109+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/e8387e35dbce7843/">pi-sw1-p38</a></td>
+    <td>welland</td>
+    <td>e8387e35dbce7843</td>
+    <td>Raspberry Pi 5 Model B Rev 1.1</td>
+    <td>xilinx-pcie</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:49.525911+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/10000000f77b8415/">pi-sw2-p10</a></td>
+    <td>welland</td>
+    <td>10000000f77b8415</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>arty-a7</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:52:57.500217+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/10000000de0c73e5/">pi-sw2-p12</a></td>
+    <td>welland</td>
+    <td>10000000de0c73e5</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>arty-a7</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:04.767611+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/10000000ce8e3593/">pi-sw2-p15</a></td>
+    <td>welland</td>
+    <td>10000000ce8e3593</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>arty-a7</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:17.887545+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c000810b122044/">pi-sw2-p18</a></td>
+    <td>welland</td>
+    <td>02c000810b122044</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge offline">
+      offline</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T11:03:22.189680+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c00181e1ce7d46/">pi-sw2-p19</a></td>
+    <td>welland</td>
+    <td>02c00181e1ce7d46</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T12:53:33.710570+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c00181bff6b799/">pi-sw2-p20</a></td>
+    <td>welland</td>
+    <td>02c00181bff6b799</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge offline">
+      offline</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T11:03:22.300390+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c0008131f46e48/">pi-sw2-p21</a></td>
+    <td>welland</td>
+    <td>02c0008131f46e48</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T12:52:59.910261+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c000812eb7a34e/">pi-sw2-p22</a></td>
+    <td>welland</td>
+    <td>02c000812eb7a34e</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T12:53:22.537624+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c001811fe1451d/">pi-sw2-p23</a></td>
+    <td>welland</td>
+    <td>02c001811fe1451d</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge offline">
+      offline</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T11:40:17.449361+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/02c00081f5c0a610/">pi-sw2-p24</a></td>
+    <td>welland</td>
+    <td>02c00081f5c0a610</td>
+    <td>Xunlong Orange Pi PC</td>
+    <td></td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">missing</span>
+</td>
+    <td>2026-10-04T12:53:45.140792+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/1000000085948b10/">pi-sw2-p33</a></td>
+    <td>welland</td>
+    <td>1000000085948b10</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>tt-demo-board</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">error</span>
+</td>
+    <td>2026-10-04T12:53:30.490975+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/100000007a4f3afc/">pi-sw2-p35</a></td>
+    <td>welland</td>
+    <td>100000007a4f3afc</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>tt-demo-board</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">error</span>
+</td>
+    <td>2026-10-04T12:52:56.761992+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/1000000062c15d4f/">pi-sw2-p36</a></td>
+    <td>welland</td>
+    <td>1000000062c15d4f</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>tt-demo-board</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">error</span>
+</td>
+    <td>2026-10-04T12:53:02.762006+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/256307e8f7d0cc00/">pi-sw2-p37</a></td>
+    <td>welland</td>
+    <td>256307e8f7d0cc00</td>
+    <td>Raspberry Pi 5 Model B Rev 1.1</td>
+    <td>xilinx-pcie</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:41.411340+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/a01e40441f959c20/">pi-sw2-p43</a></td>
+    <td>welland</td>
+    <td>a01e40441f959c20</td>
+    <td>Raspberry Pi 5 Model B Rev 1.1</td>
+    <td>xilinx-pcie</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:20.246901+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/c36b093f773d46b8/">pi-sw2-p44</a></td>
+    <td>welland</td>
+    <td>c36b093f773d46b8</td>
+    <td>Raspberry Pi 5 Model B Rev 1.1</td>
+    <td>xilinx-pcie</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:00.936877+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/0cd35697db04a4ab/">pi-sw2-p46</a></td>
+    <td>welland</td>
+    <td>0cd35697db04a4ab</td>
+    <td>Raspberry Pi 5 Model B Rev 1.1</td>
+    <td>xilinx-pcie</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge online">pass</span>
+</td>
+    <td>2026-10-04T12:53:33.962858+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/285df3f84af242d0/">pi-sw2-p47</a></td>
+    <td>welland</td>
+    <td>285df3f84af242d0</td>
+    <td>Raspberry Pi 5 Model B Rev 1.1</td>
+    <td>xilinx-pcie</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge online">pass</span>
+</td>
+    <td>2026-10-04T12:53:40.369367+00:00</td>
+  </tr>
+  
+  <tr>
+    <td><a href="/fleet/10000000613a4524/">pi-sw2-p9</a></td>
+    <td>welland</td>
+    <td>10000000613a4524</td>
+    <td>Raspberry Pi 4 Model B Rev 1.5</td>
+    <td>arty-a7</td>
+    <td><span class="badge online">
+      online</span></td>
+    <td>
+<span class="badge offline">fail</span>
+</td>
+    <td>2026-10-04T12:53:46.748733+00:00</td>
+  </tr>
+  
+</table>
+
+</body>
+</html>

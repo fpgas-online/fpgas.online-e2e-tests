@@ -148,9 +148,30 @@ minutes) run only with `--disruptive`; without it those two cells read
 default now. The audit is not on the six-hourly schedule: run it from the
 Actions page with the "audit" box ticked (and "audit_disruptive" as well to
 include the upload and power cycle), or by hand. `--boards
-HOSTNAME,HOSTNAME` (hostnames as the index lists them) narrows it during
-development. A board whose FPGA type has no bitstream in this repo (every Acorn)
+HOSTNAME,HOSTNAME` (hostnames as the index lists them) narrows it; see "Which
+boards a run may touch". A board whose FPGA type has no bitstream in this repo (every Acorn)
 shows "skipped" in the upload column.
+
+## Which boards a run may touch
+
+- `--boards HOSTNAME[,HOSTNAME...]` (hostnames as the index lists them)
+  restricts the whole run to those boards. The audit audits only them; the
+  shared tests choose only among the named boards that the site lists, and
+  fail, naming them, if it lists none. With `--boards` no test opens any other
+  board's page.
+- `--disruptive` (the bitstream upload and the power cycle) never chooses a
+  board: it needs `--boards`, and without it the run is refused before any
+  test starts. Nothing disruptive runs on a board you did not name.
+- Some devices must never be disrupted, even when named. They are listed in
+  `e2e/protected_boards.toml` by the Pi's serial number, with the label name
+  and the reason, never by port or hostname. At run time the serial is looked
+  up against the site's public registry (`/fleet/`), so a protected device is
+  recognised under whatever hostname it has that day. A disruptive action on a
+  protected device is refused with a failure naming its label and reason; in
+  the audit its upload and power cycle cells fail with the same words.
+- If the registry cannot be read, or a named board is not in it, its identity
+  is unknown, and the disruptive action fails rather than going ahead.
+- Tests that only do what a visitor does are unaffected by the protected list.
 
 ## How it decides something works
 

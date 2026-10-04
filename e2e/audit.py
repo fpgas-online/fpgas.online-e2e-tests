@@ -129,7 +129,7 @@ DISRUPTIVE = ("upload", "power cycle")
 NEEDS_DISRUPTIVE = "needs --disruptive"
 
 
-def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
+def audit_board(session, known_hosts, disruptive: bool = False, refusal: str = "") -> BoardAudit:
     """Every journey, in the order a person would try them, on one open board.
 
     The disruptive ones come last -- the upload reprograms the FPGA and Reset
@@ -137,7 +137,9 @@ def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
     a user finds it. These are public boards other people may be using, so
     they run only when `disruptive` is true (the --disruptive option);
     otherwise they are marked skipped, "needs --disruptive", and nothing on
-    the board is changed. The other journeys still type into the shared web
+    the board is changed. With `refusal` (why this board must not be
+    disrupted: see e2e.protection) the disruptive cells are failures that say
+    so, not skips, and nothing is changed. The other journeys still type into the shared web
     terminal and open the page's ssh session, which change nothing lasting.
     """
     from e2e import journeys  # noqa: PLC0415 - journeys imports the session types this module renders
@@ -155,6 +157,9 @@ def audit_board(session, known_hosts, disruptive: bool = False) -> BoardAudit:
     for name, journey, note_from, needs_ground_truth in steps:
         if name in DISRUPTIVE and not disruptive:
             row.checks.append(Check(name=name, passed=False, detail=NEEDS_DISRUPTIVE, skipped=True))
+            continue
+        if name in DISRUPTIVE and refusal:
+            row.checks.append(Check(name=name, passed=False, detail=f"refused: {refusal}"))
             continue
         if name == "upload" and journeys.loadable_for(session.board) is None:
             row.checks.append(
