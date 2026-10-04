@@ -27,7 +27,7 @@ from typing import NamedTuple
 
 from PIL import Image
 
-from e2e import ocr
+from e2e import cursor, ocr
 
 # A shell prompt as it really appears: "06:25:33 pi@pi2:~/Demos/counter_test $ ".
 # Deliberately NOT anchored to the end of the buffer. The board pages attach to
@@ -110,6 +110,8 @@ _PROMPT_LINE = re.compile(r"[\w.-]+@[\w.-]+:[^\r\n]*?[$#](?:[ \t]+(?P<typed>\S.*
 # "|", "_", "[" or "l" is just as likely a visitor's first keystroke, and
 # a command typed over theirs is worse than a skipped test.
 CURSOR_TOKEN = "[]"
+# How many times to look for a cursor that blinks before deciding there is none.
+CURSOR_LOOKS = 4
 
 # tmux's status line is the last row of the screen. What it looks like comes
 # from fpgas.online-setup-pi (onpi/tmux/tmux.conf): "[<session number>] ", a
@@ -293,6 +295,10 @@ class TerminalOutput:
 class WebTerminal:
     """The wssh iframe on a board page."""
 
+    # Whether the last screen read found the cursor in the picture (and so
+    # blanked it before OCR); None until a screen has been read.
+    _cursor_seen: bool | None = None
+
     def __init__(self, page, frame_selector: str = "#wssh_if", prompt: str = DEFAULT_PROMPT):
         self.page = page
         self.frame_selector = frame_selector
@@ -342,7 +348,7 @@ class WebTerminal:
                 next_look = time.monotonic() + look_every
             self.page.wait_for_timeout(500)
         line = read_shell_line(self._last_screen)
-        if line.state == "busy":
+        if line.state == "busy" and self._cursor_seen is not False:
             raise TerminalBusy(self.busy_reason(line.text, self._last_screen))
         raise TimeoutError(
             f"no shell prompt within {timeout}s; {describe_busy_shell(self._last_screen)}"
@@ -477,8 +483,23 @@ class WebTerminal:
         the screen. (A visitor who starts typing in the few milliseconds
         between this look and the keystrokes cannot be detected.)
         """
-        screen = self._ocr_visible()
+        # The cursor is blanked out of the picture before OCR (see e2e.cursor),
+        # so text after the prompt is glyphs. xterm blinks it, though, and a
+        # shot taken in the off phase shows none: look again a few times for
+        # one. Text after the prompt with no cursor in sight in any shot cannot
+        # be told from a misread cursor, which is a failure, not a visitor.
+        for look in range(CURSOR_LOOKS):
+            screen = self._ocr_visible()
+            if self._cursor_seen is not False or look == CURSOR_LOOKS - 1:
+                break
+            self.page.wait_for_timeout(400)
         line = read_shell_line(screen)
+        if line.state == "busy" and self._cursor_seen is False:
+            raise TerminalLost(
+                f"nothing was typed: {line.text!r} follows the prompt but no cursor was found in {CURSOR_LOOKS} "
+                f"looks, so a visitor's text cannot be told from a misread cursor; "
+                f"the screen reads {ocr.normalise(screen)[-300:]!r}"
+            )
         if line.state == "busy":
             raise TerminalBusy(self.busy_reason(line.text, screen))
         if line.state != "free":
@@ -580,4 +601,6 @@ class WebTerminal:
             .screenshot(timeout=timeout * 1000),
             wait=retry_wait,
         )
-        return ocr.read_text(Image.open(io.BytesIO(shot)), psm=6)
+        picture, cursors = cursor.blank_cursors(Image.open(io.BytesIO(shot)))
+        self._cursor_seen = bool(cursors)
+        return ocr.read_text(picture, psm=6)
