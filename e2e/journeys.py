@@ -108,17 +108,17 @@ def poe_status_is_reported(session: BoardSession, evidence: EvidenceLog, timeout
     board, status, page = session.board, session.status, session.page
     baseline = status.text()
     page.click(f"#status{board.port}")
-    seen, detail = status.wait_for_new("power", baseline, timeout=timeout)
-    evidence.claim("the status box reports the PoE state after 'Check PoE'", seen, detail=detail)
     # Only what the click added counts: an old line from before the click is
-    # not an answer to it.
-    state = status.poe_state(since=baseline)
+    # not an answer to it, and neither is "checking status: <port>", which
+    # only says the question was asked.
+    state, detail = status.wait_for_poe_state(baseline, timeout=timeout)
+    evidence.claim("the status box reports the PoE state after 'Check PoE'", bool(state), detail=detail)
     if state == "off":
         live, picture = session.camera.check_live(timeout=15)
         evidence.claim(
             "the status box does not say 'off' under a live picture",
             not live,
-            detail=f"the box says power off; {picture}",
+            detail=f"the box says PoE off; {picture}",
         )
     return state
 
@@ -198,7 +198,7 @@ def reset_power_cycles_the_board(session: BoardSession, evidence: EvidenceLog) -
     clicked_at = time.monotonic()
     page.click(f"#reset{board.port}")
 
-    seen, detail = status.wait_for_new("set power", baseline, timeout=30)
+    seen, detail = status.wait_for_new("reset: PoE", baseline, timeout=30)
     evidence.claim("the status box reports the PoE port being switched", seen, detail=detail)
 
     stopped, detail = camera.check_stopped(timeout=120)
