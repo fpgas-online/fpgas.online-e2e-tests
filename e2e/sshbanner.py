@@ -14,7 +14,9 @@ _DETAILS = re.compile(
     r"user:\s*(?P<user>\S+?),\s*host:\s*(?P<host>[\w.-]+),\s*port\s*(?P<port>\d+)",
     re.IGNORECASE,
 )
-_SSH_COMMAND = re.compile(r"ssh\s+-p\s*\d+\s+\S+@[\w.-]+")
+# `-4`/`-6` may come before the port: since fpgas.online-site #63 the board
+# pages print `ssh -4 -p <port> pi@<site>` (board ssh is IPv4 only, #19).
+_SSH_COMMAND = re.compile(r"ssh(?:\s+-[46])?\s+-p\s*\d+\s+\S+@[\w.-]+")
 # A credential printed on a line of its own: one token, no spaces, not prose.
 _BARE_PASSWORD = re.compile(r"[\w.@:+/=-]{6,64}")
 _PASSWORD = re.compile(

@@ -160,6 +160,12 @@ def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: 
         detail=f"page says: {instructions}",
     )
     command = instructions.ssh_command
+    target = f"{instructions.user}@{instructions.host}"
+    evidence.claim(
+        "the printed command uses the port, user and host the page states",
+        bool(command) and f"-p {instructions.port} " in command and command.endswith(" " + target),
+        detail=f"command {command!r}; the page states port {instructions.port}, {target}",
+    )
     try:
         login = log_in_with_the_printed_command(command, ["hostname"], known_hosts, timeout=timeout)
     except SshUnreachable as exc:

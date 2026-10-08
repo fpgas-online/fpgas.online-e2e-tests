@@ -39,7 +39,7 @@ _PASSWORD_PROMPT = r"[Pp]assword:"
 _SSH_PASSWORD_PROMPT = r"\S+@[\w.-]+'s\s+" + _PASSWORD_PROMPT
 # What the page's block must look like for this to be the page's command and
 # not ours: the ssh client, a port, and user@host. Anything else is refused.
-_PRINTED_COMMAND = re.compile(r"^ssh\s+-p\s*\d+\s+\S+@[\w.-]+$")
+_PRINTED_COMMAND = re.compile(r"^ssh(?:\s+-[46])?\s+-p\s*\d+\s+\S+@[\w.-]+$")
 
 
 # The page addresses a visitor who has no key on the board. The machine running

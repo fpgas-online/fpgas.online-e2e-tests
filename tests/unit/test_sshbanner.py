@@ -26,6 +26,25 @@ def test_parse_instructions_reads_the_copyable_ssh_command():
     assert parse_instructions(PAGE).ssh_command == "ssh -p 21622 pi@welland.fpgas.online"
 
 
+# The board page since fpgas.online-site #63 (read from pi-sw2-p44 on
+# 2026-10-09, the password replaced): the command carries -4, and the page
+# says why (#19).
+PAGE_DASH4 = """
+      Use your own ssh client. user: pi, host: welland.fpgas.online, port 24422,
+      password: example1
+      Board ssh is offered over IPv4 only; the -4 below makes your ssh client use it.
+      click to copy:
+             ssh -4 -p 24422 pi@welland.fpgas.online
+             scp -4 -P 24422 * pi@welland.fpgas.online:Uploads
+"""
+
+
+def test_parse_instructions_reads_the_command_with_dash_4():
+    got = parse_instructions(PAGE_DASH4)
+    assert got.ssh_command == "ssh -4 -p 24422 pi@welland.fpgas.online"
+    assert (got.user, got.host, got.port) == ("pi", "welland.fpgas.online", 24422)
+
+
 def test_parse_instructions_raises_when_the_page_says_nothing():
     with pytest.raises(ValueError):
         parse_instructions("no instructions here")
