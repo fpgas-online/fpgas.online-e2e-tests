@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from e2e.site import Site, parse_boards
+from e2e.board import Board
+from e2e.site import Site, cameras_listed, detect_cameras, parse_boards, parse_fleet_links
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "html"
 
@@ -85,3 +86,67 @@ def test_site_from_name_builds_the_base_url():
 def test_site_from_name_rejects_an_unknown_site():
     with pytest.raises(ValueError):
         Site.from_name("nowhere")
+
+
+# -- cameras, from the fleet registry --------------------------------------------------------------------------
+
+FLEET_BOARD = (FIXTURES / "welland-fleet-board-no-cameras-2026-10-08.html").read_text()
+_NONE = "&#x27;cameras&#x27;: []"
+WITH_CAMERA = FLEET_BOARD.replace(_NONE, _NONE.replace("[]", "[{}]"), 1)
+
+
+def test_the_fleet_list_maps_hostnames_to_their_pages():
+    links = parse_fleet_links((FIXTURES / "welland-fleet-2026-10-04.html").read_text())
+    assert links["pi-sw1-p17"] == "/fleet/00000000cc479fd1/"
+    assert links["pi-sw2-p43"] == "/fleet/a01e40441f959c20/"
+
+
+def test_an_empty_cameras_list_in_the_newest_identification_means_no_camera():
+    """The older identification in the fixture lists a camera; only the newest counts."""
+    assert cameras_listed(FLEET_BOARD) is False
+
+
+def test_a_listed_camera_in_the_newest_identification_means_a_camera():
+    assert cameras_listed(WITH_CAMERA) is True
+
+
+@pytest.mark.parametrize(
+    "page",
+    ["<html><h1>pi-sw1-p17</h1><p>no usable pi-identified event from this Pi</p></html>", "<pre>{</pre>", ""],
+)
+def test_a_page_without_a_readable_identification_is_unknown(page):
+    assert cameras_listed(page) is None
+    assert cameras_listed(page.replace("<pre>", "<details><pre>")) is None
+
+
+def _fetcher(pages):
+    def fetch(path):
+        if isinstance(pages.get(path), Exception):
+            raise pages[path]
+        return pages[path]
+
+    return fetch
+
+
+def test_detect_cameras_reads_each_boards_own_fleet_page():
+    pages = {
+        "/fleet/": (FIXTURES / "welland-fleet-2026-10-04.html").read_text(),
+        "/fleet/00000000cc479fd1/": FLEET_BOARD,
+        "/fleet/a01e40441f959c20/": WITH_CAMERA,
+    }
+    boards = [Board("pi-sw1-p17", 17, ""), Board("pi-sw2-p43", 43, "")]
+    assert [b.has_camera for b in detect_cameras(boards, _fetcher(pages))] == [False, True]
+
+
+def test_detect_cameras_leaves_unknown_what_it_cannot_read_and_never_says_no_camera():
+    pages = {
+        "/fleet/": (FIXTURES / "welland-fleet-2026-10-04.html").read_text(),
+        "/fleet/00000000cc479fd1/": ConnectionError("down"),
+    }
+    boards = [Board("pi-sw1-p17", 17, ""), Board("not-listed", 1, "")]
+    assert [b.has_camera for b in detect_cameras(boards, _fetcher(pages))] == [None, None]
+
+
+def test_detect_cameras_with_an_unreadable_fleet_list_leaves_every_board_unknown():
+    boards = [Board("pi-sw1-p17", 17, "")]
+    assert [b.has_camera for b in detect_cameras(boards, _fetcher({"/fleet/": RuntimeError("500")}))] == [None]

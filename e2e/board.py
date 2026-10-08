@@ -12,6 +12,11 @@ class Board:
     hostname: str
     port: int
     fpga_board: str
+    # Whether the board has a camera, from what the fleet registry lists for it
+    # (e2e.site.detect_cameras): True or False, or None when that could not be
+    # read. The index and board pages show a video player for every board,
+    # camera or not, so they cannot say.
+    has_camera: bool | None = None
 
     @property
     def page_path(self) -> str:

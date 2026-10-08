@@ -19,6 +19,7 @@ pytest_plugins = ["pytester"]
 
 BUSY = TerminalBusy("a visitor is using the terminal: 'sudo apt install pipx' is on the shell's line")
 INDEX_HTML = Path(__file__).parents[2] / "fixtures" / "html" / "welland-fpgas-index-2026-10-04.html"
+FLEET_LIST = Path(__file__).parents[2] / "fixtures" / "html" / "welland-fleet-2026-10-04.html"
 
 
 def _failing_evidence():
@@ -99,7 +100,31 @@ from tests.shared.conftest import board_page  # noqa: F401
 HTML = Path({index!r}).read_text()
 
 
+class _Response:
+    ok = True
+
+    def __init__(self, text):
+        self._text = text
+
+    def text(self):
+        return self._text
+
+
+FLEET_LIST = Path({fleet_list!r}).read_text()
+BOARD_PAGE = "<details><pre>{{'peripherals': {{'cameras': CAMERAS}}}}</pre></details>"
+
+
+class _Request:
+    def get(self, url):
+        if url.rstrip("/").endswith("/fleet"):
+            return _Response(FLEET_LIST)
+        listed = {cameras!r}.get(url.rstrip("/").rsplit("/", 1)[1], True)
+        return _Response(BOARD_PAGE.replace("CAMERAS", "[1]" if listed else "[]"))
+
+
 class Page:
+    request = _Request()
+
     def goto(self, *args, **kwargs):
         pass
 
@@ -113,7 +138,12 @@ class Terminal:
 
 
 class Camera:
+    def __init__(self, board):
+        self.board = board
+
     def check_live_with_recovery(self, timeout=60):
+        if self.board.has_camera is False:
+            raise AssertionError("the camera of a board with none was consulted")
         return {camera_live}, "clock did not advance"
 
 
@@ -121,7 +151,7 @@ class Session:
     def __init__(self, board):
         self.board = board
         self.terminal = Terminal()
-        self.camera = Camera()
+        self.camera = Camera(board)
 
     def snapshot(self, path):
         pass
@@ -152,26 +182,38 @@ def page(): return Page()
 def site():
     class S:
         index_url = "x"
+
+        def url(self, path):
+            return "https://site.example" + path
     return S()
 @pytest.fixture
 def seed(): return 1
 @pytest.fixture
-def on_dead(): return OnDead.FAIL
+def on_dead(): return OnDead.{on_dead}
 @pytest.fixture
 def output_dir(tmp_path): return tmp_path
 @pytest.fixture
-def boards_wanted(): return set()
+def boards_wanted(): return {wanted!r}
 @pytest.fixture
 def disruption_guard(): return None
 '''
 
 
-def _nested(pytester, raises, preload="pass", camera_live=True):
+def _nested(pytester, raises, preload="pass", camera_live=True, cameras=None, on_dead="FAIL", wanted=()):
     pytester.makeconftest(
-        CONFTEST.format(index=str(INDEX_HTML), raises=raises, preload=preload, camera_live=camera_live)
+        CONFTEST.format(
+            index=str(INDEX_HTML),
+            raises=raises,
+            preload=preload,
+            camera_live=camera_live,
+            cameras=cameras or {},
+            fleet_list=str(FLEET_LIST),
+            on_dead=on_dead,
+            wanted=set(wanted),
+        )
     )
     pytester.makepyfile("def test_it(board_page):\n    board_page()\n")
-    return pytester.runpytest("-p", "no:playwright", "-rs")
+    return pytester.runpytest("-p", "no:playwright", "-rs", "-s")
 
 
 def test_a_visitor_typing_when_the_fixture_looks_skips_the_test_with_the_reason(pytester):
@@ -216,3 +258,52 @@ def test_a_dead_camera_fails_even_when_the_terminal_is_busy(pytester):
 def test_a_live_camera_and_a_busy_terminal_still_skip(pytester):
     result = _nested(pytester, "TerminalBusy('a visitor is using the terminal: it is typing')", camera_live=True)
     result.assert_outcomes(skipped=1)
+
+
+# -- a board with no camera ----------------------------------------------------------------------------------------
+
+READY = "TerminalBusy('a visitor is using the terminal: it is typing')"
+P46, P47 = "0cd35697db04a4ab", "285df3f84af242d0"  # their serials in the fleet list fixture
+NO_CAMERA_P46 = {P46: False}
+NO_CAMERA_BOTH = {P46: False, P47: False}
+
+
+def test_the_fixture_picks_a_board_with_a_camera_and_says_why(pytester):
+    result = _nested(pytester, READY, cameras=NO_CAMERA_P46)
+    result.assert_outcomes(skipped=1)  # the busy terminal skip, reached on the camera board
+    result.stdout.fnmatch_lines(["*picked pi-sw2-p47: has a camera; seed 1; 1 of 2 boards have a camera*"])
+    assert "pi-sw2-p46" not in result.stdout.str().replace("pi-sw2-p46.html", "")
+
+
+def test_a_board_with_no_camera_is_tested_for_the_page_and_terminal_without_a_camera_failure(pytester):
+    """Both boards lack a camera: the terminal is still reached, and no camera failure is reported."""
+    result = _nested(pytester, READY, cameras=NO_CAMERA_BOTH)
+    result.assert_outcomes(skipped=1)
+    result.stdout.fnmatch_lines(["*picked pi-sw2-p4*: has no camera, tried after the boards that have one*"])
+    assert "feed never went live" not in result.stdout.str()
+
+
+def test_naming_a_camera_less_board_with_boards_tests_it_and_says_so(pytester):
+    result = _nested(pytester, READY, cameras=NO_CAMERA_P46, wanted={"pi-sw2-p46"})
+    result.assert_outcomes(skipped=1)
+    result.stdout.fnmatch_lines(["*picked pi-sw2-p46: named by --boards; has no camera; seed 1; 1 of 2 boards*"])
+
+
+def test_a_dead_terminal_on_a_camera_less_board_still_fails(pytester):
+    result = _nested(pytester, "TimeoutError('no shell prompt within 45s')", cameras=NO_CAMERA_BOTH)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*the web terminal never reached a prompt*"])
+
+
+def test_a_slow_camera_on_a_board_that_has_one_stays_a_failure_and_is_not_passed_over(pytester):
+    """The picked board has a camera that never goes live; the camera-less board is not a way out of that."""
+    result = _nested(pytester, READY, camera_live=False, cameras=NO_CAMERA_P46)
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*pi-sw2-p47 is not usable: the camera feed never went live*"])
+    assert "picked pi-sw2-p46" not in result.stdout.str()
+
+
+def test_with_on_dead_retry_the_camera_less_board_is_reached_only_after_the_camera_board_failed(pytester):
+    result = _nested(pytester, READY, camera_live=False, cameras=NO_CAMERA_P46, on_dead="RETRY")
+    out = result.stdout.str()
+    assert out.index("pi-sw2-p47 is not usable") < out.index("picked pi-sw2-p46")

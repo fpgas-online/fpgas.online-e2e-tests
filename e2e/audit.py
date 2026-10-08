@@ -166,6 +166,9 @@ def audit_board(session, known_hosts, disruptive: bool = False, refusal=None) ->
             if why:
                 row.checks.append(Check(name=name, passed=False, detail=f"refused: {why}"))
                 continue
+        if name == "camera" and session.board.has_camera is False:
+            row.checks.append(Check(name=name, passed=False, detail=journeys.NO_CAMERA, skipped=True))
+            continue
         if name == "upload" and journeys.loadable_for(session.board) is None:
             row.checks.append(
                 Check(name=name, passed=False, detail=journeys.no_bitstream_reason(session.board), skipped=True)

@@ -366,3 +366,24 @@ def test_a_busy_terminal_does_not_hide_a_failure_the_journey_already_recorded():
     cell = run_journey("terminal", failed_then_busy)
     assert not cell.skipped and not cell.passed
     assert "the status box said so" in cell.detail
+
+
+def test_a_camera_less_board_reads_no_camera_in_its_camera_cell_and_fails_nothing(monkeypatch):
+    from e2e import journeys
+
+    called = []
+    _stub_journeys(monkeypatch, called)
+    session = _FakeSession(Board("pi-sw2-p43", 43, "Fomu", has_camera=False))
+    row = audit_board(session, known_hosts=None)
+    camera = row.check("camera")
+    assert camera.skipped and camera.detail == journeys.NO_CAMERA == "no camera on this board"
+    assert "camera_is_live" not in called
+    assert {"page_names_the_board", "terminal_reaches_the_board", "direct_ssh_works"} <= set(called)
+    assert row.failures == []
+
+
+def test_a_board_with_a_camera_still_has_its_camera_checked(monkeypatch):
+    called = []
+    _stub_journeys(monkeypatch, called)
+    audit_board(_FakeSession(Board("pi-sw2-p44", 44, "Acorn", has_camera=True)), known_hosts=None)
+    assert "camera_is_live" in called
