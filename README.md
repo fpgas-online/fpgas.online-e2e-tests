@@ -163,12 +163,13 @@ shows "skipped" in the upload column.
 ## Which boards a run may touch
 
 - A board with a camera is picked before one without. The pages show a video
-  player for every board, so the suite asks the media server: a stream
-  playlist that answers is a camera, a 404 is none, and any other answer is
-  "not known" and treated as a camera. A board with no camera is tested for
+  player for every board, so the suite reads the board's fleet page (linked
+  from /fleet/), whose newest hardware identification lists the cameras the Pi
+  reports. A list with cameras is a camera, an empty list is none, and an
+  unreadable page is "not known" and treated as a camera. A board with no camera is tested for
   the page, the web terminal and ssh, its camera step reads "no camera on this
   board", and it is picked only when no board with a camera passes or when
-  `--boards` names it. A camera that is published but slow still fails. The
+  `--boards` names it. A camera that is listed but whose feed never goes live still fails. The
   run prints which board it picked and why, next to the seed.
 
 - `--boards HOSTNAME[,HOSTNAME...]` (hostnames as the index lists them)

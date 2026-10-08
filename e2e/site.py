@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import dataclasses
-import json
+import html as htmllib
 import re
 from collections.abc import Callable
 
@@ -21,6 +22,7 @@ SITES = {
 _HOSTNAME_PREFIX = re.compile(r"^\s*FPGA\s+", re.IGNORECASE)
 _PAGE_HREF = re.compile(r"^[\w.-]+\.html$")
 _PLAYER_ID = re.compile(r"^video-player(\d+)$")
+_FLEET_HREF = re.compile(r"^/fleet/[\w.-]+/$")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -68,43 +70,73 @@ def parse_boards(html: str) -> list[Board]:
             raise ValueError(f"the card for {hostname!r} has no video-player<port> element to take the port from")
         port = int(_PLAYER_ID.match(player["id"]).group(1))
         fpga = "".join(s for s in heading.next_siblings if isinstance(s, str)).strip()
-        boards.append(Board(hostname=hostname, port=port, fpga_board=fpga, stream_url=_stream_url(player)))
+        boards.append(Board(hostname=hostname, port=port, fpga_board=fpga))
     return boards
 
 
-def _stream_url(player) -> str:
-    """The playlist a card's video.js player is set up to play, or "" if it names none."""
-    try:
-        sources = json.loads(player.get("data-setup") or "{}").get("sources") or []
-    except ValueError:
-        return ""
-    return next((s["src"] for s in sources if isinstance(s, dict) and s.get("src")), "")
+def parse_fleet_links(html: str) -> dict[str, str]:
+    """Hostname -> the path of its fleet page, read off the /fleet/ list."""
+    soup = BeautifulSoup(html, "html.parser")
+    links = {}
+    for link in soup.find_all("a", href=_FLEET_HREF):
+        links[link.get_text().strip()] = link["href"]
+    return links
 
 
-def probe_cameras(boards: list[Board], status_of: Callable[[str], int]) -> list[Board]:
-    """Each board with `has_camera` set from whether its stream playlist exists.
+def cameras_listed(fleet_page: str) -> bool | None:
+    """Whether the board's latest hardware identification lists a camera.
 
-    The site shows a video player for every board, so the pages do not say
-    which boards have a camera; the media server does, by serving a playlist
-    only for a stream somebody publishes. `status_of(url)` is the HTTP status
-    of a GET. 2xx is a camera; 404 or 410 is none. Anything else (an error
-    status, no connection, a card with no playlist URL at all) leaves
-    `has_camera` None, "not known", and is never read as "no camera": a
-    camera board must not lose its camera step because the media server
-    hiccuped. This says whether a stream is published, not whether it plays:
-    a camera that publishes but never goes live still fails its camera step.
+    The fleet page of a board prints each identification the Pi reported as a
+    Python dict, newest first, with `peripherals` -> `cameras` a list. True if
+    the newest lists one or more, False if it lists none, None if the page has
+    no identification or it cannot be read. None is never read as "no camera".
     """
-    probed = []
+    soup = BeautifulSoup(fleet_page, "html.parser")
+    for details in soup.find_all("details"):
+        pre = details.find("pre")
+        if pre is None:
+            continue
+        try:
+            cameras = ast.literal_eval(htmllib.unescape(pre.get_text()))["peripherals"]["cameras"]
+        except (ValueError, SyntaxError, KeyError, TypeError):
+            return None
+        return bool(cameras) if isinstance(cameras, list) else None
+    return None
+
+
+def detect_cameras(boards: list[Board], fetch: Callable[[str], str]) -> list[Board]:
+    """Each board with `has_camera` set from the site's fleet registry.
+
+    `fetch(path)` returns the page text at a site path and raises when it
+    cannot be read. Anything unreadable (the list, a board's page, a board the
+    list does not name) leaves `has_camera` None, which the suite treats as a
+    camera board: only the registry saying "no cameras" removes the camera
+    step, so a camera board whose feed died still fails it. Cameras the Pi
+    reports are what is connected, not whether the feed is live.
+    """
+    try:
+        links = parse_fleet_links(fetch("/fleet/"))
+    except Exception:  # noqa: BLE001 - an unreadable registry says nothing about any camera
+        links = {}
+    detected = []
     for board in boards:
         has_camera: bool | None = None
-        if board.stream_url:
+        if board.hostname in links:
             try:
-                status = status_of(board.stream_url)
-            except Exception:  # noqa: BLE001 - an unreachable server says nothing about the camera
-                status = 0
-            if 200 <= status < 300:
-                has_camera = True
-            elif status in (404, 410):
-                has_camera = False
-        probed.append(dataclasses.replace(board, has_camera=has_camera))
-    return probed
+                has_camera = cameras_listed(fetch(links[board.hostname]))
+            except Exception:  # noqa: BLE001
+                has_camera = None
+        detected.append(dataclasses.replace(board, has_camera=has_camera))
+    return detected
+
+
+def page_fetcher(page, site: Site) -> Callable[[str], str]:
+    """A `fetch(path)` for detect_cameras that reads the site through the browser's request context."""
+
+    def fetch(path: str) -> str:
+        response = page.request.get(site.url(path))
+        if not response.ok:
+            raise RuntimeError(f"{site.url(path)} answered {response.status}")
+        return response.text()
+
+    return fetch

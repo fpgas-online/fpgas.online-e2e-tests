@@ -32,7 +32,7 @@ UPTIME = re.compile(r"^\s*(\d+\.\d+)\s+\d+\.\d+\s*$", re.MULTILINE)
 # come from those numbers rather than from guesses.
 BOOT_BUDGET = 300.0
 
-# The camera step of a board whose stream is not published at all (Board.has_camera).
+# The camera step of a board whose fleet registry entry lists no camera (Board.has_camera).
 NO_CAMERA = "no camera on this board"
 
 
@@ -70,7 +70,7 @@ def camera_is_live(session: BoardSession, evidence: EvidenceLog, timeout: float 
         evidence.claim(
             f"{board.hostname}: {NO_CAMERA}",
             True,
-            detail="the media server publishes no stream for it, so the camera step is not run",
+            detail="the fleet registry lists no camera for it, so the camera step is not run",
         )
         return
     live, detail = camera.check_live_with_recovery(timeout=timeout)

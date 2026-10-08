@@ -12,12 +12,10 @@ class Board:
     hostname: str
     port: int
     fpga_board: str
-    # The HLS playlist the index card plays; "" when the card names none (ps1).
-    stream_url: str = ""
-    # Whether the board has a camera: True or False once the stream has been
-    # looked at (e2e.site.probe_cameras), None while nobody has looked. The
-    # index and board pages show a video player for every board, camera or
-    # not, so only observation can say.
+    # Whether the board has a camera, from what the fleet registry lists for it
+    # (e2e.site.detect_cameras): True or False, or None when that could not be
+    # read. The index and board pages show a video player for every board,
+    # camera or not, so they cannot say.
     has_camera: bool | None = None
 
     @property

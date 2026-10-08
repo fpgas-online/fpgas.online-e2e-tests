@@ -6,7 +6,7 @@ import pytest
 
 from e2e.picker import OnDead, choose, why_picked
 from e2e.session import BoardSession, open_board
-from e2e.site import parse_boards, probe_cameras
+from e2e.site import detect_cameras, page_fetcher, parse_boards
 from e2e.terminal import TerminalBusy
 from tests.busy import skip_for_busy_terminal
 
@@ -39,7 +39,7 @@ def board_page(
 
     def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
-        boards = probe_cameras(parse_boards(page.content()), lambda url: page.request.get(url).status)
+        boards = detect_cameras(parse_boards(page.content()), page_fetcher(page, site))
         # A claim, not ground truth: this is the site talking about itself.
         # Recording it as ground truth satisfied has_ground_truth for every
         # live test before its body ran, which disarmed the one guard the
