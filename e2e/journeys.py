@@ -13,6 +13,7 @@ carries on past a failed claim so that it still gets to look at reality.
 from __future__ import annotations
 
 import re
+import shlex
 import time
 from pathlib import Path
 
@@ -161,11 +162,15 @@ def direct_ssh_works(session: BoardSession, evidence: EvidenceLog, known_hosts: 
     )
     command = instructions.ssh_command
     target = f"{instructions.user}@{instructions.host}"
-    evidence.claim(
-        "the printed command uses the port, user and host the page states",
-        bool(command) and f"-p {instructions.port} " in command and command.endswith(" " + target),
-        detail=f"command {command!r}; the page states port {instructions.port}, {target}",
-    )
+    if command:
+        # As ssh reads it: the port after -p (joined or not), and user@host last.
+        words = shlex.split(command)
+        port = next((w[2:] or nxt for w, nxt in zip(words, words[1:] + [""]) if w.startswith("-p")), "")
+        evidence.claim(
+            "the printed command uses the port, user and host the page states",
+            port == str(instructions.port) and words[-1] == target,
+            detail=f"command {command!r}; the page states port {instructions.port}, {target}",
+        )
     try:
         login = log_in_with_the_printed_command(command, ["hostname"], known_hosts, timeout=timeout)
     except SshUnreachable as exc:

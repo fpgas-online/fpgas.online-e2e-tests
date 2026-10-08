@@ -48,3 +48,10 @@ def test_a_command_that_disagrees_with_the_stated_port_is_a_failed_claim(monkeyp
     log, _ = _run(monkeypatch, page)
     assert [e.description for e in log.failures] == [
         "the printed command uses the port, user and host the page states"]
+
+
+def test_the_port_check_reads_the_command_as_ssh_does(monkeypatch):
+    page = PAGE_DASH4.replace("ssh -4 -p 24422 pi@", "ssh -4 -p24422  pi@")
+    log, handed = _run(monkeypatch, page)
+    assert handed == ["ssh -4 -p24422  pi@welland.fpgas.online"]
+    assert log.failures == []
