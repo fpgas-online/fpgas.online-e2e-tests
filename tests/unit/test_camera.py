@@ -303,3 +303,58 @@ def test_check_stopped_does_not_join_shots_of_two_players_into_one_stuck_run(mon
     cam = _SwitchingCamera([(still, WHEP), (still, HLS)] * 5000)
     stopped, _ = cam.check_stopped(timeout=0.3, gap=0.0, consecutive=3)
     assert not stopped
+
+
+# -- the camera journey on boards with and without a camera -------------------------------------------------------
+
+
+class _Session:
+    def __init__(self, board, live, detail="clock did not advance"):
+        self.board = board
+        self.camera = _SlowOrLiveCamera(live, detail)
+
+
+class _SlowOrLiveCamera:
+    def __init__(self, live, detail):
+        self.live, self.detail, self.calls = live, detail, 0
+
+    def check_live_with_recovery(self, timeout=60.0):
+        self.calls += 1
+        return self.live, self.detail
+
+    def player_state(self):
+        return "readyState 0"
+
+
+def test_a_camera_less_board_reports_no_camera_and_never_touches_the_player():
+    from e2e import journeys
+    from e2e.board import Board
+    from e2e.evidence import EvidenceLog
+
+    session = _Session(Board("pi-sw2-p43", 43, "Fomu", has_camera=False), live=False)
+    log = EvidenceLog()
+    journeys.camera_is_live(session, log)  # no AssertionError
+    assert session.camera.calls == 0
+    assert log.failures == []
+    assert "no camera on this board" in log.summary()
+
+
+def test_a_camera_that_never_goes_live_on_a_board_that_has_one_is_a_failure():
+    from e2e import journeys
+    from e2e.board import Board
+    from e2e.evidence import EvidenceLog
+
+    session = _Session(Board("acorn-sycamore", 44, "Acorn", has_camera=True), live=False)
+    with pytest.raises(AssertionError, match="camera is showing a live picture"):
+        journeys.camera_is_live(session, EvidenceLog())
+    assert session.camera.calls == 1
+
+
+def test_a_board_whose_camera_the_site_does_not_say_is_checked_like_one_that_has_one():
+    from e2e import journeys
+    from e2e.board import Board
+    from e2e.evidence import EvidenceLog
+
+    session = _Session(Board("pi2", 2, ""), live=False)
+    with pytest.raises(AssertionError):
+        journeys.camera_is_live(session, EvidenceLog())

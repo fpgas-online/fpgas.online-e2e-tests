@@ -162,6 +162,15 @@ shows "skipped" in the upload column.
 
 ## Which boards a run may touch
 
+- A board with a camera is picked before one without. The pages show a video
+  player for every board, so the suite asks the media server: a stream
+  playlist that answers is a camera, a 404 is none, and any other answer is
+  "not known" and treated as a camera. A board with no camera is tested for
+  the page, the web terminal and ssh, its camera step reads "no camera on this
+  board", and it is picked only when no board with a camera passes or when
+  `--boards` names it. A camera that is published but slow still fails. The
+  run prints which board it picked and why, next to the seed.
+
 - `--boards HOSTNAME[,HOSTNAME...]` (hostnames as the index lists them)
   restricts the whole run to those boards. The audit audits only them; the
   shared tests choose only among the named boards that the site lists, and

@@ -67,7 +67,7 @@ def why_picked(board: Board, boards: list[Board], seed: int, wanted: set[str] | 
     if board.has_camera:
         reason = "has a camera"
     elif board.has_camera is False:
-        reason = "has no camera" if board.hostname in wanted else "has no camera, and no board with one was usable"
+        reason = "has no camera" if board.hostname in wanted else "has no camera, tried after the boards that have one"
     else:
         reason = "the site does not say whether it has a camera"
     if board.hostname in wanted:

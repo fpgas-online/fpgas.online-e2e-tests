@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from e2e.site import Site, parse_boards
+from e2e.board import Board
+from e2e.site import Site, parse_boards, probe_cameras
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "html"
 
@@ -85,3 +86,35 @@ def test_site_from_name_builds_the_base_url():
 def test_site_from_name_rejects_an_unknown_site():
     with pytest.raises(ValueError):
         Site.from_name("nowhere")
+
+
+# -- cameras ---------------------------------------------------------------------------------------------------
+
+
+def test_the_stream_url_is_read_from_the_cards_player(welland_boards, ps1_boards):
+    assert welland_boards[0].stream_url == "https://welland.fpgas.online/live/pi-sw2-p46.m3u8"
+    assert ps1_boards[0].stream_url == ""  # ps1's players are set up with {}
+
+
+def _probe(statuses):
+    boards = [Board(h, i, "", stream_url=f"https://x/{h}.m3u8" if h in statuses else "") for i, h in enumerate("abcd")]
+    return [b.has_camera for b in probe_cameras(boards, lambda url: _status(statuses, url))]
+
+
+def _status(statuses, url):
+    status = statuses[url.rsplit("/", 1)[1].removesuffix(".m3u8")]
+    if isinstance(status, Exception):
+        raise status
+    return status
+
+
+def test_a_published_playlist_means_a_camera_and_a_404_means_none():
+    assert _probe({"a": 200, "b": 404}) == [True, False, None, None]
+
+
+def test_an_unreadable_answer_is_unknown_never_no_camera():
+    assert _probe({"a": 502, "b": ConnectionError("down"), "c": 500}) == [None, None, None, None]
+
+
+def test_a_card_with_no_playlist_url_is_unknown():
+    assert _probe({}) == [None, None, None, None]

@@ -64,6 +64,7 @@ def board_page(
             if disruptive_test:
                 session.refusal_check = lambda board=board: disruption_guard.refusal(board)
             opened.append(session)
+            print(f"[e2e] {why_picked(board, boards, seed, boards_wanted)}")
             try:
                 ok, why = _is_working(session)
             except TerminalBusy as exc:
@@ -72,7 +73,6 @@ def board_page(
                 skip_for_busy_terminal(evidence, exc)
             if ok:
                 print(f"[e2e] testing on {board.hostname} ({board.fpga_board})")
-                print(f"[e2e] {why_picked(board, boards, seed, boards_wanted)}")
                 if problems:
                     # --on-dead retry lets the test run on a working board so
                     # that the deep check still happens; it does not make the
