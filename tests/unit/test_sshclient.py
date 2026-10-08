@@ -19,7 +19,14 @@ def test_the_page_command_is_run_as_printed():
     assert printed_command_argv("ssh -p 10722 pi@ps1.fpgas.online") == ["ssh", "-p", "10722", "pi@ps1.fpgas.online"]
 
 
-@pytest.mark.parametrize("bad", ["scp -P 10722 * pi@ps1.fpgas.online:Uploads", "ssh pi@host", "rm -rf /", ""])
+def test_the_page_command_with_dash_4_is_run_as_printed():
+    assert printed_command_argv("ssh -4 -p 24422 pi@welland.fpgas.online") == [
+        "ssh", "-4", "-p", "24422", "pi@welland.fpgas.online"]
+
+
+@pytest.mark.parametrize("bad", ["scp -P 10722 * pi@ps1.fpgas.online:Uploads", "scp -4 -P 24422 * pi@h:Uploads",
+                                 "ssh -o ProxyCommand=x -p 1 pi@h", "ssh -4 pi@host",
+                                 "ssh -p 1 -oProxyCommand=x@h", "ssh -p 1 -Jx@h", "ssh pi@host", "rm -rf /", ""])
 def test_anything_but_the_printed_ssh_command_is_refused(bad):
     with pytest.raises(ValueError):
         printed_command_argv(bad)
