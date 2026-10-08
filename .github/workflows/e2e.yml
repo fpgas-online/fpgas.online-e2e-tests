@@ -2,7 +2,11 @@ name: e2e
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    # Every 2 hours, but a scheduled run tests only when the last scheduled run
+    # that tested started 5 or more hours ago (e2e/schedule_due.py). GitHub
+    # drops and delays schedule slots: the six-hourly cron ran about every
+    # second slot, with gaps up to 19 hours (#16).
+    - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       site:
@@ -36,6 +40,8 @@ on:
 
 jobs:
   unit:
+    needs: plan
+    if: ${{ needs.plan.outputs.due == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,10 +55,21 @@ jobs:
   plan:
     # Which sites to test. This cannot be a job-level `if` on the matrix job:
     # the `matrix` context is not available when job-level `if` is evaluated.
+    # Also whether this run tests at all (a scheduled run within 5 hours of the
+    # last tested one does not), and the six-hourly slot it serves.
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       sites: ${{ steps.pick.outputs.sites }}
+      due: ${{ steps.due.outputs.due }}
     steps:
+      - uses: actions/checkout@v4
+      - id: due
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -m e2e.schedule_due >> "$GITHUB_OUTPUT"
       - id: pick
         env:
           WANTED: ${{ inputs.site || 'both' }}
@@ -69,7 +86,7 @@ jobs:
     # reason). `inputs` is empty on a schedule, so inputs.disruptive is null
     # and the expression yields ''; only a dispatch with the box ticked yields
     # '--disruptive'.
-    if: ${{ !inputs.audit }}
+    if: ${{ !inputs.audit && needs.plan.outputs.due == 'true' }}
     needs: [unit, plan]
     runs-on: ubuntu-latest
     strategy:
@@ -122,7 +139,7 @@ jobs:
     # Every board at the site, one row per board, in the job summary. Only by
     # hand. Without audit_disruptive it changes nothing on the boards; with it,
     # it power-cycles every board and takes the best part of an hour.
-    if: ${{ inputs.audit }}
+    if: ${{ inputs.audit && needs.plan.outputs.due == 'true' }}
     needs: [unit, plan]
     runs-on: ubuntu-latest
     timeout-minutes: 180
