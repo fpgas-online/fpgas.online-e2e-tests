@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from e2e.picker import OnDead, choose
+from e2e.picker import OnDead, choose, why_picked
 from e2e.session import BoardSession, open_board
-from e2e.site import parse_boards
+from e2e.site import parse_boards, probe_cameras
 from e2e.terminal import TerminalBusy
 from tests.busy import skip_for_busy_terminal
 
@@ -39,7 +39,7 @@ def board_page(
 
     def _open() -> BoardSession:
         page.goto(site.index_url, wait_until="domcontentloaded")
-        boards = parse_boards(page.content())
+        boards = probe_cameras(parse_boards(page.content()), lambda url: page.request.get(url).status)
         # A claim, not ground truth: this is the site talking about itself.
         # Recording it as ground truth satisfied has_ground_truth for every
         # live test before its body ran, which disarmed the one guard the
@@ -72,6 +72,7 @@ def board_page(
                 skip_for_busy_terminal(evidence, exc)
             if ok:
                 print(f"[e2e] testing on {board.hostname} ({board.fpga_board})")
+                print(f"[e2e] {why_picked(board, boards, seed, boards_wanted)}")
                 if problems:
                     # --on-dead retry lets the test run on a working board so
                     # that the deep check still happens; it does not make the
@@ -100,17 +101,24 @@ def board_page(
         # fetch the playlist, buffer a few one-second segments and start
         # decoding; a single sample taken the moment the terminal connects
         # catches readyState 0 every time and calls a healthy board dead.
+        if session.board.has_camera is False:
+            # Tested for what it has: the page, the web terminal and ssh. A
+            # board with a camera that is slow is still a failure, below.
+            return _terminal_ready(session, "no camera on this board")
         try:
             live, detail = session.camera.check_live_with_recovery(timeout=45)
         except Exception as exc:  # noqa: BLE001
             return False, f"the camera could not be read ({exc})"
         if not live:
             return False, f"the camera feed never went live ({detail})"
+        return _terminal_ready(session, f"the camera feed is live ({detail})")
+
+    def _terminal_ready(session, ok_detail: str) -> tuple[bool, str]:
         try:
             session.terminal.wait_for_prompt(timeout=45)
         except TimeoutError as exc:
             return False, f"the web terminal never reached a prompt ({exc})"
-        return True, f"the camera feed is live ({detail})"
+        return True, ok_detail
 
     yield _open
 

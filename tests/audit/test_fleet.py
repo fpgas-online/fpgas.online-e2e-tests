@@ -24,7 +24,7 @@ import pytest
 
 from e2e.audit import audit_board, render_markdown, render_text, unopened_board_audit
 from e2e.session import open_board
-from e2e.site import parse_boards
+from e2e.site import parse_boards, probe_cameras
 
 
 @pytest.mark.live
@@ -42,7 +42,7 @@ def test_every_board_at_the_site(
     disruption_guard,
 ):
     page.goto(site.index_url, wait_until="domcontentloaded")
-    boards = parse_boards(page.content())
+    boards = probe_cameras(parse_boards(page.content()), lambda url: page.request.get(url).status)
     assert boards, f"the index page at {site.index_url} lists no boards, so there is nothing to audit"
     evidence.claim(
         "the index page lists at least one board",

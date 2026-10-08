@@ -32,6 +32,9 @@ UPTIME = re.compile(r"^\s*(\d+\.\d+)\s+\d+\.\d+\s*$", re.MULTILINE)
 # come from those numbers rather than from guesses.
 BOOT_BUDGET = 300.0
 
+# The camera step of a board whose stream is not published at all (Board.has_camera).
+NO_CAMERA = "no camera on this board"
+
 
 def page_names_the_board(session: BoardSession, evidence: EvidenceLog) -> None:
     """The page that opened is the board's page, and it says what hardware it is.
@@ -62,6 +65,14 @@ def camera_is_live(session: BoardSession, evidence: EvidenceLog, timeout: float 
     you wait, and calls a healthy camera dead about a quarter of the time.
     """
     board, camera = session.board, session.camera
+    if board.has_camera is False:
+        # Nothing to watch, and nothing to fail: the other steps stand on their own.
+        evidence.claim(
+            f"{board.hostname}: {NO_CAMERA}",
+            True,
+            detail="the media server publishes no stream for it, so the camera step is not run",
+        )
+        return
     live, detail = camera.check_live_with_recovery(timeout=timeout)
     evidence.ground_truth(
         f"{board.hostname}'s camera is showing a live picture",
