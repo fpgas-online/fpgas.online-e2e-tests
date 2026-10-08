@@ -12,6 +12,13 @@ class Board:
     hostname: str
     port: int
     fpga_board: str
+    # The HLS playlist the index card plays; "" when the card names none (ps1).
+    stream_url: str = ""
+    # Whether the board has a camera: True or False once the stream has been
+    # looked at (e2e.site.probe_cameras), None while nobody has looked. The
+    # index and board pages show a video player for every board, camera or
+    # not, so only observation can say.
+    has_camera: bool | None = None
 
     @property
     def page_path(self) -> str:

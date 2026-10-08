@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
+from collections.abc import Callable
 
 from bs4 import BeautifulSoup
 
@@ -66,5 +68,43 @@ def parse_boards(html: str) -> list[Board]:
             raise ValueError(f"the card for {hostname!r} has no video-player<port> element to take the port from")
         port = int(_PLAYER_ID.match(player["id"]).group(1))
         fpga = "".join(s for s in heading.next_siblings if isinstance(s, str)).strip()
-        boards.append(Board(hostname=hostname, port=port, fpga_board=fpga))
+        boards.append(Board(hostname=hostname, port=port, fpga_board=fpga, stream_url=_stream_url(player)))
     return boards
+
+
+def _stream_url(player) -> str:
+    """The playlist a card's video.js player is set up to play, or "" if it names none."""
+    try:
+        sources = json.loads(player.get("data-setup") or "{}").get("sources") or []
+    except ValueError:
+        return ""
+    return next((s["src"] for s in sources if isinstance(s, dict) and s.get("src")), "")
+
+
+def probe_cameras(boards: list[Board], status_of: Callable[[str], int]) -> list[Board]:
+    """Each board with `has_camera` set from whether its stream playlist exists.
+
+    The site shows a video player for every board, so the pages do not say
+    which boards have a camera; the media server does, by serving a playlist
+    only for a stream somebody publishes. `status_of(url)` is the HTTP status
+    of a GET. 2xx is a camera; 404 or 410 is none. Anything else (an error
+    status, no connection, a card with no playlist URL at all) leaves
+    `has_camera` None, "not known", and is never read as "no camera": a
+    camera board must not lose its camera step because the media server
+    hiccuped. This says whether a stream is published, not whether it plays:
+    a camera that publishes but never goes live still fails its camera step.
+    """
+    probed = []
+    for board in boards:
+        has_camera: bool | None = None
+        if board.stream_url:
+            try:
+                status = status_of(board.stream_url)
+            except Exception:  # noqa: BLE001 - an unreachable server says nothing about the camera
+                status = 0
+            if 200 <= status < 300:
+                has_camera = True
+            elif status in (404, 410):
+                has_camera = False
+        probed.append(dataclasses.replace(board, has_camera=has_camera))
+    return probed
