@@ -28,12 +28,15 @@ MIN_GAP = timedelta(hours=5)
 SLOT = timedelta(hours=6)
 # A job that runs only when the run tests (it is skipped otherwise).
 TESTING_JOB = "unit"
+# Conclusions that mean the testing job did not test. None (still queued or
+# running) counts as testing: that run is under way.
+NOT_TESTED = {"skipped", "cancelled"}
 
 
 def slot_of(now: datetime) -> datetime:
-    """The six-hourly slot (00/06/12/18 UTC) this time belongs to."""
+    """The six-hourly slot (00/06/12/18 UTC) nearest this time: GitHub starts runs early as well as late."""
     day = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return day + SLOT * ((now - day) // SLOT)
+    return day + SLOT * round((now - day) / SLOT)
 
 
 def decide(now: datetime, last_tested: datetime | None) -> tuple[bool, str]:
@@ -66,7 +69,7 @@ def last_tested_start(repo: str, this_run: int) -> datetime | None:
         if r["id"] == this_run:
             continue
         jobs = _gh(f"repos/{repo}/actions/runs/{r['id']}/jobs")["jobs"]
-        if any(j["name"] == TESTING_JOB and j["conclusion"] != "skipped" for j in jobs):
+        if any(j["name"] == TESTING_JOB and j["conclusion"] not in NOT_TESTED for j in jobs):
             return _parse(r["run_started_at"] or r["created_at"])
     return None
 
