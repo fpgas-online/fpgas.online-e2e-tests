@@ -19,7 +19,7 @@ pytest_plugins = ["pytester"]
 
 BUSY = TerminalBusy("a visitor is using the terminal: 'sudo apt install pipx' is on the shell's line")
 INDEX_HTML = Path(__file__).parents[2] / "fixtures" / "html" / "welland-fpgas-index-2026-10-04.html"
-FLEET_LIST = Path(__file__).parents[2] / "fixtures" / "html" / "welland-fleet-2026-10-04.html"
+FLEET_LIST = Path(__file__).parents[2] / "fixtures" / "json" / "welland-registry-2026-10-04.json"
 
 
 def _failing_evidence():
@@ -87,6 +87,7 @@ def test_a_busy_terminal_does_not_hide_evidence_that_already_failed(monkeypatch,
 # -- the board_page fixture --------------------------------------------------------------------------------------
 
 CONFTEST = '''
+import json
 from pathlib import Path
 
 import pytest
@@ -111,15 +112,16 @@ class _Response:
 
 
 FLEET_LIST = Path({fleet_list!r}).read_text()
-BOARD_PAGE = "<details><pre>{{'peripherals': {{'cameras': CAMERAS}}}}</pre></details>"
 
 
 class _Request:
     def get(self, url):
-        if url.rstrip("/").endswith("/fleet"):
-            return _Response(FLEET_LIST)
-        listed = {cameras!r}.get(url.rstrip("/").rsplit("/", 1)[1], True)
-        return _Response(BOARD_PAGE.replace("CAMERAS", "[1]" if listed else "[]"))
+        # the site's /fleet/registry.json, with each machine's cameras as the test says (listed unless it says not)
+        assert url.endswith("/fleet/registry.json"), url
+        doc = json.loads(FLEET_LIST)
+        for machine in doc["machines"]:
+            machine["cameras"] = [1] if {cameras!r}.get(machine["serial"], True) else []
+        return _Response(json.dumps(doc))
 
 
 class Page:

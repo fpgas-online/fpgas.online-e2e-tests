@@ -163,10 +163,10 @@ shows "skipped" in the upload column.
 ## Which boards a run may touch
 
 - A board with a camera is picked before one without. The pages show a video
-  player for every board, so the suite reads the board's fleet page (linked
-  from /fleet/), whose newest hardware identification lists the cameras the Pi
-  reports. A list with cameras is a camera, an empty list is none, and an
-  unreadable page is "not known" and treated as a camera. A board with no camera is tested for
+  player for every board, so the suite reads the site's registry for programs
+  (`/fleet/registry.json`), whose `cameras` for each host is what its newest
+  registration lists. A list with cameras is a camera, an empty list is none,
+  and null or an unreadable registry is "not known" and treated as a camera. A board with no camera is tested for
   the page, the web terminal and ssh, its camera step reads "no camera on this
   board", and it is picked only when no board with a camera passes or when
   `--boards` names it. A camera that is listed but whose feed never goes live still fails. The
@@ -183,7 +183,7 @@ shows "skipped" in the upload column.
 - Some devices must never be disrupted, even when named. They are listed in
   `e2e/protected_boards.toml` by the Pi's serial number, with the label name
   and the reason, never by port or hostname. At run time the serial is looked
-  up against the site's public registry (`/fleet/`), so a protected device is
+  up against the site's public registry (`/fleet/registry.json`), so a protected device is
   recognised under whatever hostname it has that day. A disruptive action on a
   protected device is refused with a failure naming its label and reason; in
   the audit its upload and power cycle cells fail with the same words.

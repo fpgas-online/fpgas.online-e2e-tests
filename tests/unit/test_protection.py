@@ -1,8 +1,9 @@
 """Which boards a run may touch: named explicitly, never protected, and nothing else opened.
 
-The registry pages are fixtures: the site's /fleet/ page of 2026-10-04, and the
-same page with the protected device's hostname changed, which is what a board
-re-patched or renamed looks like to a run.
+The registry is a fixture: the site's /fleet/registry.json with the machines of the
+2026-10-04 /fleet/ page (the same hostnames and serials; the fields that page did
+not carry are null), and the same document with the protected device's hostname
+changed, which is what a board re-patched or renamed looks like to a run.
 """
 
 from pathlib import Path
@@ -27,7 +28,7 @@ from e2e.site import Site, parse_boards
 pytest_plugins = ["pytester"]
 
 HTML = Path(__file__).parents[2] / "fixtures" / "html"
-FLEET = (HTML / "welland-fleet-2026-10-04.html").read_text()
+FLEET = (Path(__file__).parents[2] / "fixtures" / "json" / "welland-registry-2026-10-04.json").read_text()
 SERIAL = "285df3f84af242d0"
 SITE = Site("welland", "https://welland.fpgas.online")
 
@@ -56,29 +57,41 @@ def test_a_protected_entry_missing_its_reason_is_an_error_not_a_shorter_list(tmp
         load_protected(path)
 
 
-def test_the_registry_page_gives_each_hostname_its_serial():
+def test_the_registry_gives_each_hostname_its_serial():
     registry = parse_registry(FLEET)
     assert registry[_hostname_of(SERIAL)] == SERIAL
     assert all(len(serial) == 16 for serial in registry.values())
 
 
 @pytest.mark.parametrize(
-    "html",
-    [
-        "<html><body><table><tr><th>Hostname</th></tr></table></body></html>",
-        "<table><tr><td colspan=8>No machines have registered yet.</td></tr></table>",
-        "",
-    ],
+    "text",
+    ['{"machines": []}', '{"machines": [{"serial": "0001", "hostname": ""}]}'],
 )
-def test_a_registry_with_no_machines_is_an_error(html):
+def test_a_registry_with_no_named_machines_is_an_error(text):
     with pytest.raises(RegistryError, match="no machines"):
-        parse_registry(html)
+        parse_registry(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "<html>the /fleet/ page</html>", '{"site": "welland"}', '{"machines": {"a": 1}}', '{"machines": [1]}'],
+)
+def test_a_text_that_is_not_the_registry_is_an_error(text):
+    with pytest.raises(RegistryError, match="not the site's registry|not a list"):
+        parse_registry(text)
+
+
+def test_a_machine_with_no_serial_is_an_error_and_one_with_no_hostname_cannot_be_named():
+    with pytest.raises(RegistryError, match="no serial"):
+        parse_registry('{"machines": [{"hostname": "a", "serial": ""}]}')
+    text = '{"machines": [{"hostname": "a", "serial": "0001"}, {"hostname": null, "serial": "0002"}]}'
+    assert parse_registry(text) == {"a": "0001"}
 
 
 def test_one_hostname_with_two_serials_is_an_error():
-    html = "<table><tr><td>a</td><td>s</td><td>0001</td></tr><tr><td>a</td><td>s</td><td>0002</td></tr></table>"
+    text = '{"machines": [{"hostname": "a", "serial": "0001"}, {"hostname": "a", "serial": "0002"}]}'
     with pytest.raises(RegistryError, match="two serials"):
-        parse_registry(html)
+        parse_registry(text)
 
 
 # -- refusing the protected device ----------------------------------------------------------------------------------
@@ -99,7 +112,7 @@ def test_another_board_may_be_disrupted():
 def test_the_protected_device_is_still_refused_when_it_answers_to_another_hostname():
     """Identity is the serial, read at run time: renaming or re-patching the board does not unprotect it."""
     old = _hostname_of(SERIAL)
-    moved = FLEET.replace(f">{old}<", ">pi-sw9-p99<")
+    moved = FLEET.replace(f'"hostname": "{old}"', '"hostname": "pi-sw9-p99"')
     assert old not in parse_registry(moved)
     guard = DisruptionGuard(SITE, fetch=lambda _url: moved)
     assert "acorn-holly" in guard.refusal(_board("pi-sw9-p99"))
@@ -125,7 +138,7 @@ def test_the_registry_is_read_afresh_for_every_answer():
     guard = DisruptionGuard(SITE, fetch=lambda url: reads.append(url) or FLEET)
     guard.refusal(_board("a"))
     guard.refusal(_board("b"))
-    assert reads == ["https://welland.fpgas.online/fleet/"] * 2
+    assert reads == ["https://welland.fpgas.online/fleet/registry.json"] * 2
 
 
 def test_a_device_that_moves_onto_the_named_hostname_between_two_actions_is_refused_the_second_time():
@@ -133,8 +146,11 @@ def test_a_device_that_moves_onto_the_named_hostname_between_two_actions_is_refu
     named = next(h for h, s in parse_registry(FLEET).items() if s != SERIAL)
     protected_host = _hostname_of(SERIAL)
     # The protected device and the named board swap hostnames.
-    swapped = FLEET.replace(f">{named}<", ">TMP<").replace(f">{protected_host}<", f">{named}<")
-    moved = swapped.replace(">TMP<", f">{protected_host}<")
+    def name(hostname):
+        return f'"hostname": "{hostname}"'
+
+    swapped = FLEET.replace(name(named), name("TMP")).replace(name(protected_host), name(named))
+    moved = swapped.replace(name("TMP"), name(protected_host))
     pages = iter([FLEET, moved])
     guard = DisruptionGuard(SITE, fetch=lambda _url: next(pages))
     assert guard.refusal(_board(named)) == ""  # the first action: allowed
@@ -212,7 +228,7 @@ def test_each_disruptive_journey_asks_immediately_before_its_action(name, action
 
 
 def test_the_registry_is_read_from_the_sites_public_fleet_page():
-    assert read_registry(SITE, fetch=lambda url: FLEET if url.endswith("/fleet/") else "")
+    assert read_registry(SITE, fetch=lambda url: FLEET if url.endswith("/fleet/registry.json") else "")
 
 
 def test_the_real_disruption_guard_reads_the_protected_file():
@@ -376,7 +392,7 @@ def _nested(pytester, *args, select):
     pytester.makeconftest(
         CONFTEST.format(
             index=str(HTML / "welland-fpgas-index-2026-10-04.html"),
-            fleet=str(HTML / "welland-fleet-2026-10-04.html"),
+            fleet=str(Path(__file__).parents[2] / "fixtures" / "json" / "welland-registry-2026-10-04.json"),
             opened=str(opened),
         )
     )

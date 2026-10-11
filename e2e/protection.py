@@ -6,8 +6,9 @@ protected one: a device that must be left exactly as it is. A protected device
 is identified by what it is, the Pi's serial number, never by its port or its
 hostname, because those move when a board is re-patched or renamed. The serial
 -> hostname mapping is read at run time from the site's public registry
-(https://<site>/fleet/), so a protected device that now answers to another
-hostname is still refused.
+(https://<site>/fleet/registry.json, the site's contract for programs; the
+/fleet/ page is for people and changes its layout), so a protected device that
+now answers to another hostname is still refused.
 
 Fail loud: if the registry cannot be read, or a board named is not in it, the
 identity of the board is unknown and nothing disruptive is done to it.
@@ -16,12 +17,11 @@ identity of the board is unknown and nothing disruptive is done to it.
 from __future__ import annotations
 
 import dataclasses
+import json
 import tomllib
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-
-from bs4 import BeautifulSoup
 
 from e2e.board import Board
 from e2e.site import Site
@@ -63,22 +63,33 @@ def require_named_boards(disruptive: bool, boards_wanted: set[str]) -> None:
         )
 
 
-def parse_registry(html: str) -> dict[str, str]:
-    """hostname -> serial, from the registry page's table (fleet/list.html on the site).
+def _machines(text: str) -> list[dict]:
+    """The `machines` list of the site's /fleet/registry.json; RegistryError when the text is not that document."""
+    try:
+        machines = json.loads(text)["machines"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RegistryError(f"the registry is not the site's registry document: {exc!r}") from exc
+    if not isinstance(machines, list) or not all(isinstance(m, dict) for m in machines):
+        raise RegistryError("the registry's machines are not a list of objects")
+    return machines
 
-    Raises RegistryError for a page with no machines, a row that is not
-    hostname/site/serial, or one hostname given two serials: any of them
-    means the identities cannot be trusted.
+
+def parse_registry(text: str) -> dict[str, str]:
+    """hostname -> serial, from the site's /fleet/registry.json.
+
+    A machine with no hostname cannot be named with --boards, so it is not in
+    the map. Raises RegistryError for a document that is not the registry, one
+    with no named machines, a machine with no serial, or one hostname given two
+    serials: any of them means the identities cannot be trusted.
     """
-    soup = BeautifulSoup(html, "html.parser")
     registry: dict[str, str] = {}
-    for row in soup.find_all("tr"):
-        cells = row.find_all("td")
-        if len(cells) < 3 or row.find("th") is not None:
-            continue  # the header, or the "no machines" row
-        hostname, serial = cells[0].get_text().strip(), cells[2].get_text().strip().lower()
-        if not hostname or not serial:
-            raise RegistryError(f"a registry row has no hostname or serial: {row.get_text(' ', strip=True)!r}")
+    for machine in _machines(text):
+        hostname, serial = machine.get("hostname"), machine.get("serial")
+        if not isinstance(serial, str) or not serial.strip():
+            raise RegistryError(f"a registry machine has no serial: {machine!r}")
+        if not isinstance(hostname, str) or not hostname.strip():
+            continue
+        hostname, serial = hostname.strip(), serial.strip().lower()
         if registry.get(hostname, serial) != serial:
             raise RegistryError(f"the registry gives {hostname} two serials, {registry[hostname]} and {serial}")
         registry[hostname] = serial
@@ -94,7 +105,7 @@ def http_get(url: str) -> str:
 
 def read_registry(site: Site, fetch: Callable[[str], str] = http_get) -> dict[str, str]:
     """The site's current hostname -> serial map. Raises RegistryError, naming why, if it cannot be had."""
-    url = f"{site.base_url}/fleet/"
+    url = f"{site.base_url}/fleet/registry.json"
     try:
         html = fetch(url)
     except Exception as exc:  # noqa: BLE001 - whatever stopped the read is the reason to report
