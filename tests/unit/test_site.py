@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from e2e.board import Board
-from e2e.site import Site, cameras_listed, detect_cameras, parse_boards, parse_fleet_links
+from e2e.site import Site, cameras_by_hostname, detect_cameras, parse_boards
 
 FIXTURES = Path(__file__).parents[2] / "fixtures" / "html"
 
@@ -88,35 +89,30 @@ def test_site_from_name_rejects_an_unknown_site():
         Site.from_name("nowhere")
 
 
-# -- cameras, from the fleet registry --------------------------------------------------------------------------
+# -- cameras, from the fleet registry (/fleet/registry.json) -----------------------------------------------------
 
-FLEET_BOARD = (FIXTURES / "welland-fleet-board-no-cameras-2026-10-08.html").read_text()
-_NONE = "&#x27;cameras&#x27;: []"
-WITH_CAMERA = FLEET_BOARD.replace(_NONE, _NONE.replace("[]", "[{}]"), 1)
-
-
-def test_the_fleet_list_maps_hostnames_to_their_pages():
-    links = parse_fleet_links((FIXTURES / "welland-fleet-2026-10-04.html").read_text())
-    assert links["pi-sw1-p17"] == "/fleet/00000000cc479fd1/"
-    assert links["pi-sw2-p43"] == "/fleet/a01e40441f959c20/"
+REGISTRY_FILE = Path(__file__).parents[2] / "fixtures" / "json" / "welland-registry-2026-10-04.json"
+REGISTRY = json.loads(REGISTRY_FILE.read_text())
 
 
-def test_an_empty_cameras_list_in_the_newest_identification_means_no_camera():
-    """The older identification in the fixture lists a camera; only the newest counts."""
-    assert cameras_listed(FLEET_BOARD) is False
+def _registry(**cameras):
+    """The fixture registry with `cameras` set for the named hostnames (null for the rest, as the fixture has)."""
+    doc = json.loads(json.dumps(REGISTRY))
+    for machine in doc["machines"]:
+        if machine["hostname"] in cameras:
+            machine["cameras"] = cameras[machine["hostname"]]
+    return json.dumps(doc)
 
 
-def test_a_listed_camera_in_the_newest_identification_means_a_camera():
-    assert cameras_listed(WITH_CAMERA) is True
+def test_the_registry_says_per_hostname_whether_a_camera_is_listed():
+    found = cameras_by_hostname(_registry(**{"pi-sw1-p17": [], "pi-sw2-p43": [{"model": "imx219"}]}))
+    assert (found["pi-sw1-p17"], found["pi-sw2-p43"]) == (False, True)
+    assert found["pi-sw1-p10"] is None  # the registry does not say: never "no camera"
 
 
-@pytest.mark.parametrize(
-    "page",
-    ["<html><h1>pi-sw1-p17</h1><p>no usable pi-identified event from this Pi</p></html>", "<pre>{</pre>", ""],
-)
-def test_a_page_without_a_readable_identification_is_unknown(page):
-    assert cameras_listed(page) is None
-    assert cameras_listed(page.replace("<pre>", "<details><pre>")) is None
+@pytest.mark.parametrize("text", ["", "<html>/fleet/</html>", '{"machines": "x"}', '{"other": 1}'])
+def test_a_text_that_is_not_the_registry_says_nothing_about_any_camera(text):
+    assert cameras_by_hostname(text) == {}
 
 
 def _fetcher(pages):
@@ -128,25 +124,29 @@ def _fetcher(pages):
     return fetch
 
 
-def test_detect_cameras_reads_each_boards_own_fleet_page():
-    pages = {
-        "/fleet/": (FIXTURES / "welland-fleet-2026-10-04.html").read_text(),
-        "/fleet/00000000cc479fd1/": FLEET_BOARD,
-        "/fleet/a01e40441f959c20/": WITH_CAMERA,
-    }
+def test_detect_cameras_reads_the_registry_once():
+    pages = {"/fleet/registry.json": _registry(**{"pi-sw1-p17": [], "pi-sw2-p43": [{}]})}
     boards = [Board("pi-sw1-p17", 17, ""), Board("pi-sw2-p43", 43, "")]
     assert [b.has_camera for b in detect_cameras(boards, _fetcher(pages))] == [False, True]
 
 
-def test_detect_cameras_leaves_unknown_what_it_cannot_read_and_never_says_no_camera():
-    pages = {
-        "/fleet/": (FIXTURES / "welland-fleet-2026-10-04.html").read_text(),
-        "/fleet/00000000cc479fd1/": ConnectionError("down"),
-    }
+def test_detect_cameras_leaves_unknown_what_the_registry_does_not_say_and_never_says_no_camera():
+    pages = {"/fleet/registry.json": _registry()}
     boards = [Board("pi-sw1-p17", 17, ""), Board("not-listed", 1, "")]
     assert [b.has_camera for b in detect_cameras(boards, _fetcher(pages))] == [None, None]
 
 
-def test_detect_cameras_with_an_unreadable_fleet_list_leaves_every_board_unknown():
+def test_detect_cameras_with_an_unreadable_registry_leaves_every_board_unknown():
     boards = [Board("pi-sw1-p17", 17, "")]
-    assert [b.has_camera for b in detect_cameras(boards, _fetcher({"/fleet/": RuntimeError("500")}))] == [None]
+    assert [b.has_camera for b in detect_cameras(boards, _fetcher({"/fleet/registry.json": RuntimeError("500")}))] == [
+        None
+    ]
+
+
+def test_two_machines_on_one_hostname_that_disagree_say_not_known_never_no_camera():
+    doc = {"machines": [{"hostname": "pi-sw2-p48", "serial": "a", "cameras": [{}]},
+                        {"hostname": "pi-sw2-p48", "serial": "b", "cameras": []},
+                        {"hostname": "pi-sw2-p47", "serial": "c", "cameras": []},
+                        {"hostname": "pi-sw2-p47", "serial": "d", "cameras": []}]}
+    found = cameras_by_hostname(json.dumps(doc))
+    assert found == {"pi-sw2-p48": None, "pi-sw2-p47": False}  # agreeing duplicates keep what they say

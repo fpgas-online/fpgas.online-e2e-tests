@@ -1,0 +1,396 @@
+{
+  "site": "welland",
+  "generated_at": "2026-10-04T00:00:00+00:00",
+  "machines": [
+    {
+      "serial": "000000004fe3e7e4",
+      "hostname": "pi-sw1-p10",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "00000000e2eb5dbf",
+      "hostname": "pi-sw1-p12",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "000000007ce37c3c",
+      "hostname": "pi-sw1-p14",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "000000007fc62979",
+      "hostname": "pi-sw1-p16",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "00000000cc479fd1",
+      "hostname": "pi-sw1-p17",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "00000000412ce8de",
+      "hostname": "pi-sw1-p18",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "e8387e35dbce7843",
+      "hostname": "pi-sw1-p38",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "10000000f77b8415",
+      "hostname": "pi-sw2-p10",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "10000000de0c73e5",
+      "hostname": "pi-sw2-p12",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "10000000ce8e3593",
+      "hostname": "pi-sw2-p15",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c000810b122044",
+      "hostname": "pi-sw2-p18",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c00181e1ce7d46",
+      "hostname": "pi-sw2-p19",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c00181bff6b799",
+      "hostname": "pi-sw2-p20",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c0008131f46e48",
+      "hostname": "pi-sw2-p21",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c000812eb7a34e",
+      "hostname": "pi-sw2-p22",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c001811fe1451d",
+      "hostname": "pi-sw2-p23",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "02c00081f5c0a610",
+      "hostname": "pi-sw2-p24",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "1000000085948b10",
+      "hostname": "pi-sw2-p33",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "100000007a4f3afc",
+      "hostname": "pi-sw2-p35",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "1000000062c15d4f",
+      "hostname": "pi-sw2-p36",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "256307e8f7d0cc00",
+      "hostname": "pi-sw2-p37",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "a01e40441f959c20",
+      "hostname": "pi-sw2-p43",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "c36b093f773d46b8",
+      "hostname": "pi-sw2-p44",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "0cd35697db04a4ab",
+      "hostname": "pi-sw2-p46",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "285df3f84af242d0",
+      "hostname": "pi-sw2-p47",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    },
+    {
+      "serial": "10000000613a4524",
+      "hostname": "pi-sw2-p9",
+      "label": null,
+      "port": null,
+      "condition": null,
+      "offered": null,
+      "boards": [],
+      "check": {
+        "result": null,
+        "at": null
+      },
+      "last_seen": null,
+      "cameras": null
+    }
+  ]
+}
