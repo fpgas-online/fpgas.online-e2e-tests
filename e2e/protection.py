@@ -107,10 +107,10 @@ def read_registry(site: Site, fetch: Callable[[str], str] = http_get) -> dict[st
     """The site's current hostname -> serial map. Raises RegistryError, naming why, if it cannot be had."""
     url = f"{site.base_url}/fleet/registry.json"
     try:
-        html = fetch(url)
+        text = fetch(url)
     except Exception as exc:  # noqa: BLE001 - whatever stopped the read is the reason to report
         raise RegistryError(f"the registry at {url} could not be read: {exc}") from exc
-    return parse_registry(html)
+    return parse_registry(text)
 
 
 def disruption_refusal(board: Board, registry: dict[str, str], protected: dict[str, ProtectedBoard]) -> str:

@@ -89,7 +89,9 @@ def cameras_by_hostname(text: str) -> dict[str, bool | None]:
         if not isinstance(machine, dict) or not isinstance(machine.get("hostname"), str):
             continue
         cameras = machine.get("cameras")
-        found[machine["hostname"].strip()] = bool(cameras) if isinstance(cameras, list) else None
+        hostname, says = machine["hostname"].strip(), bool(cameras) if isinstance(cameras, list) else None
+        # two machines on one hostname that disagree say nothing certain: "not known", never "no camera"
+        found[hostname] = says if found.get(hostname, says) == says else None
     return found
 
 

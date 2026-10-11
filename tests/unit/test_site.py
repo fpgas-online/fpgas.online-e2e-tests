@@ -141,3 +141,12 @@ def test_detect_cameras_with_an_unreadable_registry_leaves_every_board_unknown()
     assert [b.has_camera for b in detect_cameras(boards, _fetcher({"/fleet/registry.json": RuntimeError("500")}))] == [
         None
     ]
+
+
+def test_two_machines_on_one_hostname_that_disagree_say_not_known_never_no_camera():
+    doc = {"machines": [{"hostname": "pi-sw2-p48", "serial": "a", "cameras": [{}]},
+                        {"hostname": "pi-sw2-p48", "serial": "b", "cameras": []},
+                        {"hostname": "pi-sw2-p47", "serial": "c", "cameras": []},
+                        {"hostname": "pi-sw2-p47", "serial": "d", "cameras": []}]}
+    found = cameras_by_hostname(json.dumps(doc))
+    assert found == {"pi-sw2-p48": None, "pi-sw2-p47": False}  # agreeing duplicates keep what they say
